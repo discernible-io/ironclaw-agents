@@ -92,3 +92,6 @@ tests/fixtures/llm_traces/live/*.log
 # scripts/build-test-tools.sh; only sources/manifests/schemas/prompts are tracked.
 test-tools/*.zip
 test-tools/*/wasm-src/target/
+
+# Host TLS material must never be committed (lives in ironclaw-app/certs)
+*.pem
