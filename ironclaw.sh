@@ -196,11 +196,18 @@ cmd_create_github_fork() {
   if gh repo view discernible-io/ironclaw-idc >/dev/null 2>&1; then
     echo "discernible-io/ironclaw-idc already exists"
   else
-    gh repo fork nearai/ironclaw --org discernible-io --fork-name ironclaw-idc --remote=false --clone=false
+    # discernible-io is a user account (not an org); --org would 422.
+    # Do not pass --remote/--clone: when REPO is given, --remote is rejected by gh,
+    # and we already manage origin/upstream ourselves below.
+    echo "==> Forking nearai/ironclaw → discernible-io/ironclaw-idc"
+    gh repo fork nearai/ironclaw --fork-name ironclaw-idc
   fi
   git -C "$ROOT" remote set-url origin git@github.com:discernible-io/ironclaw-idc.git
-  git -C "$ROOT" remote set-url upstream git@github.com:nearai/ironclaw.git || \
+  if git -C "$ROOT" remote get-url upstream >/dev/null 2>&1; then
+    git -C "$ROOT" remote set-url upstream git@github.com:nearai/ironclaw.git
+  else
     git -C "$ROOT" remote add upstream git@github.com:nearai/ironclaw.git
+  fi
   echo "Remotes configured. Push with: git push -u origin HEAD"
 }
 
