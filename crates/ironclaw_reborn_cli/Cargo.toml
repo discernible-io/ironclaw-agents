@@ -109,7 +109,7 @@ ironclaw_reborn_composition = { path = "../ironclaw_reborn_composition", version
 # mutex the composition/llm/auth crates and `src/` use — so no crate defines a
 # second, non-serializing lock domain (the #6015 flake). Dev-only: the lock is
 # reached solely from `#[cfg(test)]` code in `runtime::test_env`.
-ironclaw_common = { path = "../ironclaw_common", version = "0.4.2" }
+ironclaw_common = { path = "../ironclaw_common", version = "0.5.0" }
 
 [[bin]]
 name = "ironclaw-reborn"
