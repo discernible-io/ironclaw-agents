@@ -845,6 +845,14 @@ mod tests {
              every thinking-mode model OpenRouter exposes (Claude with \
              thinking, OpenAI o-series, DeepSeek-R1, Gemini 2.5+, Qwen QwQ)",
         );
+        // Catalog must expose the concrete URL — an empty default leaves
+        // Settings/configure UI with a blank Base URL field even though
+        // rig-core would still talk to openrouter.ai at runtime.
+        assert_eq!(
+            openrouter.default_base_url.as_deref(),
+            Some("https://openrouter.ai/api/v1"),
+            "openrouter must declare default_base_url so the UI can show it",
+        );
     }
 
     #[test]

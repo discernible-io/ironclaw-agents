@@ -816,6 +816,16 @@ mod tests {
             "should contain bedrock"
         );
 
+        // OpenRouter must ship a concrete base_url for the configure dialog;
+        // an empty catalog default rendered as a blank Base URL field even
+        // though runtime would still use rig-core's openrouter.ai default.
+        let openrouter = find_provider(arr, "openrouter").expect("should contain openrouter");
+        assert_eq!(
+            openrouter.get("base_url").and_then(|v| v.as_str()),
+            Some("https://openrouter.ai/api/v1"),
+            "openrouter base_url must be non-empty for Settings UI"
+        );
+
         // Each entry should have required fields
         for p in arr {
             let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("<missing>");
