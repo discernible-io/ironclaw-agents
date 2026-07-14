@@ -69,6 +69,9 @@ Lower-level: `./scripts/deploy-local-podman.sh`, `./scripts/deploy-pod.sh`.
 
 ## Git remotes (fork)
 
+`discernible-io` is a **user** account (not a GitHub org). The fork is created with
+`gh repo fork nearai/ironclaw --fork-name ironclaw-idc` (no `--org`).
+
 ```text
 origin    git@github.com:discernible-io/ironclaw-idc.git
 upstream  git@github.com:nearai/ironclaw.git
