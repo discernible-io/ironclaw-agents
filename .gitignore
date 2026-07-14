@@ -116,3 +116,7 @@ mutants.out.old/
 # silently exclude nested `app/` directories (e.g. crates/*/frontend/src/app/).
 # Prefer .git/info/exclude for personal working directories.
 /app/
+
+# Host TLS material must never be committed (lives in ironclaw-app/certs)
+*.pem
+
