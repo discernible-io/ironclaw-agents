@@ -34,10 +34,16 @@ source "$SCRIPT_DIR/lib-podman.sh"
 APP_DIR="$(ironclaw_app_dir)"
 export APP_DIR IRONCLAW_APP_DIR="$APP_DIR"
 
-if command -v git >/dev/null 2>&1 && git -C "$REPO_ROOT" rev-parse --short HEAD >/dev/null 2>&1; then
-  LOCAL_TAG="${LOCAL_TAG:-$(git -C "$REPO_ROOT" rev-parse --short HEAD)}"
-else
-  LOCAL_TAG="${LOCAL_TAG:-local}"
+# Prefer an explicit tag (ironclaw.sh passes LOCAL_TAG=local). Fall back to
+# git SHA only when invoked standalone without LOCAL_TAG / IRONCLAW_IMAGE_TAG.
+if [[ -n "${IRONCLAW_IMAGE_TAG:-}" ]]; then
+  LOCAL_TAG="$IRONCLAW_IMAGE_TAG"
+elif [[ -z "${LOCAL_TAG:-}" ]]; then
+  if command -v git >/dev/null 2>&1 && git -C "$REPO_ROOT" rev-parse --short HEAD >/dev/null 2>&1; then
+    LOCAL_TAG="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+  else
+    LOCAL_TAG=local
+  fi
 fi
 
 ironclaw_load_secrets

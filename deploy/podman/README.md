@@ -28,6 +28,20 @@ Matches the shared host layout in [`../docs/docs/cicd-deployment-standard.md`](.
 Profile: `hosted-single-tenant-volume` (no Postgres required). Reborn listens on
 `127.0.0.1:3000` inside the pod; only nginx publishes the host port.
 
+## TLS certificates
+
+Prefer Let's Encrypt via `~/infra` (same as SignPortal), not self-signed:
+
+```bash
+cd ~/infra
+sudo ./generate-cert-letsencrypt.sh ironclaw.dihola.io
+sudo ./install-certs-to-apps.sh
+cd ~/ironclaw-idc && ./ironclaw.sh restart
+```
+
+`./ironclaw.sh generate-certs` is only a bootstrap when no LE cert exists yet
+(browsers will warn on that self-signed leaf).
+
 ## Quick start
 
 ```bash
