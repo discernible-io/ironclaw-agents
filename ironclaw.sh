@@ -7,14 +7,16 @@
 # Commands:
 #   init                 Create ironclaw-app layout + seed secrets.env from template
 #   generate-certs       Self-signed TLS PEMs into ironclaw-app/certs/
-#   build-image          Build ironclaw-reborn + nginx images
+#   build-image          Build ironclaw-reborn + nginx (+ identyclaw helper) images
 #   start                Recreate pod (builds if images missing unless --skip-build)
 #   stop                 Stop/remove pod
 #   restart              stop + start
 #   status               Podman ps + health probe
-#   logs [reborn|nginx]  Follow container logs (default: reborn)
+#   logs [reborn|nginx|identyclaw]  Follow container logs (default: reborn)
 #   token                Print IRONCLAW_REBORN_WEBUI_TOKEN from secrets.env
 #   chat | url           Print WebUI HTTPS URL + token (browser chat; not Identyclaw TUI)
+#   identyclaw-init      Layout near-credentials + install helper npm deps on host
+#   identyclaw <cmd>     Host CLI: ensure-session|me|create-hola|verify-hola|...
 #   create-github-fork   Create discernible-io/ironclaw-idc fork via gh (once)
 
 set -euo pipefail
@@ -94,6 +96,10 @@ nginx_image_ref() {
   echo "localhost/ironclaw-nginx:$(image_tag)"
 }
 
+identyclaw_image_ref() {
+  echo "localhost/ironclaw-identyclaw:$(image_tag)"
+}
+
 cmd_build_image() {
   require_podman
   ironclaw_load_secrets
@@ -110,6 +116,82 @@ cmd_build_image() {
     --build-arg "INGRESS_PORT=${port}" \
     -t "localhost/ironclaw-nginx:${tag}" \
     "$ROOT"
+  echo "==> Building localhost/ironclaw-identyclaw:${tag}"
+  podman build -f "$ROOT/deploy/identyclaw/Containerfile" \
+    -t "localhost/ironclaw-identyclaw:${tag}" \
+    "$ROOT/deploy/identyclaw"
+}
+
+cmd_identyclaw_init() {
+  local app_dir cred_dir
+  app_dir="$(ironclaw_app_dir)"
+  ironclaw_ensure_app_layout
+  cred_dir="$(ironclaw_near_credentials_dir)"
+  echo "==> App dir: $app_dir"
+  echo "==> NEAR credentials dir: $cred_dir (chmod 700)"
+  if ! ironclaw_resolve_near_credentials >/dev/null 2>&1; then
+    echo "Place a gennearaccount JSON in ${cred_dir}/ then mint at https://purchase.identyclaw.com"
+    echo "Optional: echo '<accountid>.json' > ${cred_dir}/.active"
+  else
+    echo "Found credentials: $(ironclaw_resolve_near_credentials)"
+  fi
+  if command -v npm >/dev/null 2>&1; then
+    echo "==> Installing host helper npm deps (deploy/identyclaw)"
+    (cd "$ROOT/deploy/identyclaw" && npm install --omit=dev)
+    (cd "$ROOT/deploy/identyclaw/vendor/hola-client" && npm install --omit=dev) || true
+    # Optional MITM-hardened SDK (npm registry, or IRONCLAW_RODIT_AUTH_BE_PATH / sibling sdk/)
+    local rodit_src="${IRONCLAW_RODIT_AUTH_BE_PATH:-}"
+    if [[ -z "$rodit_src" && -d "$ROOT/../sdk/rodit-auth-be" ]]; then
+      rodit_src="$ROOT/../sdk/rodit-auth-be"
+    fi
+    if [[ -n "$rodit_src" && -d "$rodit_src" ]]; then
+      (cd "$rodit_src" && npm install --omit=dev) || true
+      (cd "$ROOT/deploy/identyclaw" && npm install --omit=dev --install-links "$rodit_src") || true
+    else
+      (cd "$ROOT/deploy/identyclaw" && npm install --omit=dev "@rodit/rodit-auth-be@9.14.1") || true
+    fi
+    # Ensure wire-login deps remain after optional SDK install
+    (cd "$ROOT/deploy/identyclaw" && npm install --omit=dev) || true
+  else
+    echo "npm not found on host — helper still builds via ./ironclaw.sh build-image"
+  fi
+  if [[ -f "${app_dir}/secrets/secrets.env" ]]; then
+    if ! grep -q '^IDENTYCLAW_HELPER_BASE=' "${app_dir}/secrets/secrets.env" 2>/dev/null; then
+      {
+        echo ""
+        echo "# IdentyClaw host helper (loopback sidecar)"
+        echo "IDENTYCLAW_BASE_URL=https://api.identyclaw.com"
+        echo "IDENTYCLAW_HELPER_BASE=http://127.0.0.1:3921"
+        echo "IDENTYCLAW_NEAR_CONTRACT_ID=genaaaa-identyclaw-com.near"
+        echo "NEAR_CONTRACT_ID=genaaaa-identyclaw-com.near"
+      } >>"${app_dir}/secrets/secrets.env"
+      echo "Appended IDENTYCLAW_* defaults to secrets.env"
+    fi
+  fi
+  echo "Next: mint Passport if needed, then ./ironclaw.sh build-image && ./ironclaw.sh start"
+  echo "Then: ./ironclaw.sh identyclaw ensure-session && ./ironclaw.sh identyclaw me"
+  echo "Agent skill: skills/identyclaw (bundled after reborn image rebuild)"
+}
+
+cmd_identyclaw() {
+  local app_dir cred
+  app_dir="$(ironclaw_app_dir)"
+  ironclaw_ensure_app_layout
+  if [[ -f "${app_dir}/secrets/secrets.env" ]]; then
+    ironclaw_load_secrets || true
+  fi
+  export IRONCLAW_APP_DIR="$app_dir"
+  export IDENTYCLAW_SESSION_DIR="$(ironclaw_identyclaw_session_dir)"
+  export IDENTYCLAW_NEAR_CREDENTIALS_DIR="$(ironclaw_near_credentials_dir)"
+  export IDENTYCLAW_BASE_URL="${IDENTYCLAW_BASE_URL:-https://api.identyclaw.com}"
+  export NEAR_CONTRACT_ID="${NEAR_CONTRACT_ID:-${IDENTYCLAW_NEAR_CONTRACT_ID:-genaaaa-identyclaw-com.near}}"
+  if cred="$(ironclaw_resolve_near_credentials 2>/dev/null)"; then
+    export NEAR_CREDENTIALS_FILE_PATH="$cred"
+  fi
+  if [[ ! -d "$ROOT/deploy/identyclaw/node_modules" ]]; then
+    cmd_identyclaw_init
+  fi
+  node "$ROOT/deploy/identyclaw/src/cli.mjs" "$@"
 }
 
 cmd_start() {
@@ -134,6 +216,7 @@ cmd_start() {
     exit 1
   fi
   LOCAL_TAG="$tag" TARGET="${TARGET:-}" APP_DIR="$(ironclaw_app_dir)" \
+    IDENTYCLAW_IMAGE="$(identyclaw_image_ref)" \
     bash "$ROOT/scripts/deploy-local-podman.sh" --skip-build
 }
 
@@ -176,8 +259,9 @@ cmd_logs() {
   case "$which" in
     reborn|app) podman logs -f ironclaw-reborn ;;
     nginx) podman logs -f ironclaw-nginx ;;
+    identyclaw|helper|idc) podman logs -f ironclaw-identyclaw ;;
     *)
-      echo "Usage: $0 logs [reborn|nginx]" >&2
+      echo "Usage: $0 logs [reborn|nginx|identyclaw]" >&2
       exit 1
       ;;
   esac
@@ -262,6 +346,8 @@ main() {
     logs) cmd_logs "$@" ;;
     token) cmd_token "$@" ;;
     chat|url) cmd_chat "$@" ;;
+    identyclaw-init) cmd_identyclaw_init "$@" ;;
+    identyclaw) cmd_identyclaw "$@" ;;
     create-github-fork) cmd_create_github_fork "$@" ;;
     -h|--help|help|"") usage 0 ;;
     *)

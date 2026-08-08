@@ -58,6 +58,7 @@ HEALTH_CHECK_INTERVAL="${HEALTH_CHECK_INTERVAL:-5}"
 
 REBORN_IMAGE="localhost/ironclaw-reborn:${LOCAL_TAG}"
 NGINX_IMAGE="localhost/ironclaw-nginx:${LOCAL_TAG}"
+IDENTYCLAW_IMAGE="${IDENTYCLAW_IMAGE:-localhost/ironclaw-identyclaw:${LOCAL_TAG}}"
 SECRETS_FILE="${APP_DIR}/secrets/secrets.env"
 
 cd "$REPO_ROOT"
@@ -76,6 +77,10 @@ build_images() {
     --build-arg "INGRESS_PORT=${APP_PORT}" \
     -t "$NGINX_IMAGE" \
     "$REPO_ROOT"
+  echo "==> Building ${IDENTYCLAW_IMAGE} (deploy/identyclaw/Containerfile)"
+  podman build -f "$REPO_ROOT/deploy/identyclaw/Containerfile" \
+    -t "$IDENTYCLAW_IMAGE" \
+    "$REPO_ROOT/deploy/identyclaw"
 }
 
 echo "==> Repo:      $REPO_ROOT"
@@ -96,6 +101,7 @@ ironclaw_ensure_app_layout
 APP_DIR="$APP_DIR" \
 REBORN_IMAGE="$REBORN_IMAGE" \
 NGINX_IMAGE="$NGINX_IMAGE" \
+IDENTYCLAW_IMAGE="$IDENTYCLAW_IMAGE" \
 TARGET="$DEPLOY_TIER" \
 REPO_ROOT="$REPO_ROOT" \
 SKIP_PULL=1 \

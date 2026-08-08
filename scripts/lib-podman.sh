@@ -83,10 +83,50 @@ ironclaw_selinux_mount_suffix() {
 ironclaw_ensure_app_layout() {
   local app_dir
   app_dir="$(ironclaw_app_dir)"
-  mkdir -p "${app_dir}/"{certs,logs/nginx,data/ironclaw-reborn,nginx,secrets}
+  mkdir -p "${app_dir}/"{certs,logs/nginx,data/ironclaw-reborn,data/identyclaw/sessions,nginx,secrets,secrets/near-credentials}
   chmod 711 "${app_dir}/certs" 2>/dev/null || true
   chmod 750 "${app_dir}/secrets" 2>/dev/null || true
+  chmod 700 "${app_dir}/secrets/near-credentials" 2>/dev/null || true
+  chmod 700 "${app_dir}/data/identyclaw" 2>/dev/null || true
+  chmod 700 "${app_dir}/data/identyclaw/sessions" 2>/dev/null || true
   chmod 0775 "${app_dir}/logs/nginx" 2>/dev/null || true
+}
+
+ironclaw_near_credentials_dir() {
+  printf '%s' "$(ironclaw_app_dir)/secrets/near-credentials"
+}
+
+ironclaw_identyclaw_session_dir() {
+  printf '%s' "$(ironclaw_app_dir)/data/identyclaw/sessions"
+}
+
+# Resolve active Passport JSON under secrets/near-credentials/.
+ironclaw_resolve_near_credentials() {
+  local dir active name hit
+  dir="$(ironclaw_near_credentials_dir)"
+  if [[ -f "${dir}/.active" ]]; then
+    name="$(tr -d '[:space:]' <"${dir}/.active")"
+    if [[ -n "$name" ]]; then
+      if [[ "$name" == /* && -f "$name" ]]; then
+        printf '%s' "$name"
+        return 0
+      fi
+      if [[ -f "${dir}/${name}" ]]; then
+        printf '%s' "${dir}/${name}"
+        return 0
+      fi
+      if [[ -f "${dir}/${name}.json" ]]; then
+        printf '%s' "${dir}/${name}.json"
+        return 0
+      fi
+    fi
+  fi
+  hit="$(find "$dir" -maxdepth 1 -type f -name '*.json' 2>/dev/null | head -1 || true)"
+  if [[ -n "$hit" ]]; then
+    printf '%s' "$hit"
+    return 0
+  fi
+  return 1
 }
 
 ironclaw_normalize_tls_certs() {
