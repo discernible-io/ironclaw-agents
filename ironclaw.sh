@@ -14,6 +14,7 @@
 #   status               Podman ps + health probe
 #   logs [reborn|nginx]  Follow container logs (default: reborn)
 #   token                Print IRONCLAW_REBORN_WEBUI_TOKEN from secrets.env
+#   chat | url           Print WebUI HTTPS URL + token (browser chat; not Identyclaw TUI)
 #   create-github-fork   Create discernible-io/ironclaw-idc fork via gh (once)
 
 set -euo pipefail
@@ -23,7 +24,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$ROOT/scripts/lib-podman.sh"
 
 usage() {
-  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -72,11 +73,17 @@ cmd_generate_certs() {
 }
 
 image_tag() {
-  if command -v git >/dev/null 2>&1 && git -C "$ROOT" rev-parse --short HEAD >/dev/null 2>&1; then
-    git -C "$ROOT" rev-parse --short HEAD
-  else
-    echo local
+  # Stable local tag by default so `restart` / `--skip-build` survive git
+  # commits. Override with IRONCLAW_IMAGE_TAG or LOCAL_TAG (e.g. a SHA for CI).
+  if [[ -n "${IRONCLAW_IMAGE_TAG:-}" ]]; then
+    printf '%s' "$IRONCLAW_IMAGE_TAG"
+    return 0
   fi
+  if [[ -n "${LOCAL_TAG:-}" ]]; then
+    printf '%s' "$LOCAL_TAG"
+    return 0
+  fi
+  printf '%s' local
 }
 
 reborn_image_ref() {
@@ -107,25 +114,27 @@ cmd_build_image() {
 
 cmd_start() {
   require_podman
-  local skip=0
+  local skip=0 tag
+  tag="$(image_tag)"
   for arg in "$@"; do
     case "$arg" in
       --skip-build) skip=1 ;;
     esac
   done
-  if [[ "$skip" -eq 1 ]]; then
-    TARGET="${TARGET:-}" APP_DIR="$(ironclaw_app_dir)" \
-      bash "$ROOT/scripts/deploy-local-podman.sh" --skip-build
-  else
-    local tag
-    tag="$(image_tag)"
+  if [[ "$skip" -eq 0 ]]; then
     if ! podman image exists "localhost/ironclaw-reborn:${tag}" \
       || ! podman image exists "localhost/ironclaw-nginx:${tag}"; then
       cmd_build_image
     fi
-    TARGET="${TARGET:-}" APP_DIR="$(ironclaw_app_dir)" \
-      bash "$ROOT/scripts/deploy-local-podman.sh" --skip-build
+  elif ! podman image exists "localhost/ironclaw-reborn:${tag}" \
+    || ! podman image exists "localhost/ironclaw-nginx:${tag}"; then
+    echo "Missing images for tag '${tag}'." >&2
+    echo "Run: ./ironclaw.sh build-image" >&2
+    echo "Or retag an existing build: podman tag localhost/ironclaw-reborn:<old> localhost/ironclaw-reborn:${tag}" >&2
+    exit 1
   fi
+  LOCAL_TAG="$tag" TARGET="${TARGET:-}" APP_DIR="$(ironclaw_app_dir)" \
+    bash "$ROOT/scripts/deploy-local-podman.sh" --skip-build
 }
 
 cmd_stop() {
@@ -183,6 +192,34 @@ cmd_token() {
   printf '%s\n' "${IRONCLAW_REBORN_WEBUI_TOKEN:-}"
 }
 
+cmd_chat() {
+  local domain port url token
+  [[ -f "$(ironclaw_app_dir)/secrets/secrets.env" ]] || {
+    echo "Missing secrets — run ./ironclaw.sh init first" >&2
+    exit 1
+  }
+  ironclaw_load_secrets
+  domain="$(ironclaw_tier_domain)"
+  port="$(ironclaw_tier_port)"
+  url="${IRONCLAW_REBORN_WEBUI_BASE_URL:-https://${domain}:${port}}"
+  # Strip trailing slash; WebUI SPA is under /v2
+  url="${url%/}"
+  token="${IRONCLAW_REBORN_WEBUI_TOKEN:-}"
+
+  cat <<EOF
+IronClaw chat is the Reborn WebUI (browser), not an in-container TUI.
+
+  URL:   ${url}/v2/
+  Token: ${token}
+
+On this host, confirm health with:
+  curl -sk https://${domain}:${port}/api/health
+
+Paste the token into the WebUI login / bearer prompt when asked.
+Print token only: ./ironclaw.sh token
+EOF
+}
+
 cmd_create_github_fork() {
   if ! command -v gh >/dev/null 2>&1; then
     echo "gh CLI required" >&2
@@ -224,6 +261,7 @@ main() {
     status) cmd_status "$@" ;;
     logs) cmd_logs "$@" ;;
     token) cmd_token "$@" ;;
+    chat|url) cmd_chat "$@" ;;
     create-github-fork) cmd_create_github_fork "$@" ;;
     -h|--help|help|"") usage 0 ;;
     *)
