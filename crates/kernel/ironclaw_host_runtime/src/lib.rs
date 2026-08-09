@@ -90,9 +90,9 @@ pub use first_party::{
 pub use first_party_tools::{
     APPLY_PATCH_CAPABILITY_ID, ATTACH_WORKSPACE_FILE_TO_REPLY_CAPABILITY_ID,
     BUILTIN_FIRST_PARTY_PROVIDER, BuiltinFirstPartyTools, ECHO_CAPABILITY_ID, GLOB_CAPABILITY_ID,
-    GREP_CAPABILITY_ID, HTTP_CAPABILITY_ID, HTTP_SAVE_CAPABILITY_ID, JSON_CAPABILITY_ID,
-    LIST_DIR_CAPABILITY_ID, MEMORY_READ_CAPABILITY_ID, MEMORY_SEARCH_CAPABILITY_ID,
-    MEMORY_TREE_CAPABILITY_ID, MEMORY_WRITE_CAPABILITY_ID, MemoryToolProfile,
+    GREP_CAPABILITY_ID, HTTP_CAPABILITY_ID, HTTP_SAVE_CAPABILITY_ID, IDCP_CAPABILITY_ID,
+    JSON_CAPABILITY_ID, LIST_DIR_CAPABILITY_ID, MEMORY_READ_CAPABILITY_ID,
+    MEMORY_SEARCH_CAPABILITY_ID, MEMORY_TREE_CAPABILITY_ID, MEMORY_WRITE_CAPABILITY_ID, MemoryToolProfile,
     NATIVE_MEMORY_FIRST_PARTY_PROVIDER, NativeMemoryToolHandler, OUTBOUND_DELIVER_CAPABILITY_ID,
     PROFILE_SET_CAPABILITY_ID, READ_FILE_CAPABILITY_ID, SHELL_CAPABILITY_ID,
     SKILL_AUTO_ACTIVATE_SET_CAPABILITY_ID, SKILL_INSTALL_CAPABILITY_ID, SKILL_LIST_CAPABILITY_ID,
@@ -111,6 +111,7 @@ pub use first_party_tools::{
     memory_invocation_for_request, memory_tool_profiles, normalize_memory_tool_input,
     register_memory_tool_handler, register_native_memory_tools,
     register_outbound_deliver_first_party_handler, register_reply_attachment_first_party_handler,
+    set_test_idcp_helper_base_override,
 };
 #[cfg(any(test, feature = "test-support"))]
 pub use first_party_tools::{

@@ -121,6 +121,15 @@ RUN apt-get -o Acquire::Retries=3 update \
         sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
+# Himalaya IMAP/SMTP CLI — pin release; override with --build-arg if needed.
+ARG HIMALAYA_VERSION=1.2.0
+ARG HIMALAYA_TARGET=x86_64-linux
+RUN curl -fsSL \
+      "https://github.com/pimalaya/himalaya/releases/download/v${HIMALAYA_VERSION}/himalaya.${HIMALAYA_TARGET}.tgz" \
+    | tar -xz -C /usr/local/bin himalaya \
+    && chmod 755 /usr/local/bin/himalaya \
+    && himalaya --version
+
 COPY --from=builder /app/target/dist/ironclaw /usr/local/bin/ironclaw
 COPY --from=railway_cli /usr/local/bin/railway /usr/local/bin/railway
 COPY docker/reborn/config.toml /opt/ironclaw/reborn/config.toml

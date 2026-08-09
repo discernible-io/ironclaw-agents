@@ -608,3 +608,13 @@ fn reborn_entrypoint_rejects_default_config_outside_opt_ironclaw() {
         "stderr: {stderr}"
     );
 }
+
+#[test]
+fn dockerfile_installs_pinned_himalaya_cli() {
+    let dockerfile = read_repo_file("Dockerfile");
+    assert!(
+        dockerfile.contains("HIMALAYA_VERSION") && dockerfile.contains("himalaya"),
+        "runtime image must install a pinned Himalaya CLI for mail skills"
+    );
+}
+

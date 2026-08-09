@@ -152,7 +152,7 @@ ironclaw_prepare_data_dir() {
   local data_dir
   data_dir="$(ironclaw_app_dir)/data/ironclaw-reborn"
   mkdir -p "$data_dir"
-  # Dockerfile.reborn runs as uid 1000 (ironclaw). After first start the
+  # Dockerfile runs as uid 1000 (ironclaw). After first start the
   # tree may be owned by the mapped container uid; ignore chown/chmod errors.
   podman unshare chown -R 1000:1000 "$data_dir" 2>/dev/null || true
   chmod 755 "$data_dir" 2>/dev/null || true

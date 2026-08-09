@@ -8,7 +8,7 @@ live in a sibling app directory — never in git.
 
 | Path | Role |
 |------|------|
-| `ironclaw-idc/` (this repo) | Code, `Dockerfile.reborn`, nginx, `./ironclaw.sh` |
+| `ironclaw-idc/` (this repo) | Code, `Dockerfile`, nginx, `./ironclaw.sh` |
 | `../ironclaw-app/secrets/secrets.env` | Runtime secrets (`chmod 600`) |
 | `../ironclaw-app/secrets/near-credentials/` | IdentyClaw Passport NEAR JSON (`chmod 700`, host-user owned) |
 | `../ironclaw-app/data/identyclaw/sessions/` | Host-cached JWTs (helper + host `idcp`; keep host-user owned) |
