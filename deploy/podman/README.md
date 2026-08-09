@@ -128,8 +128,8 @@ plus Hermes-shaped `idcp` CLI on the agent PATH. Passport NEAR credentials +
 Agent calls (same pod): `idcp …` via **shell** when `builtin.shell` is visible.
 Bundled skill: `skills/identyclaw`. (`identyclaw` remains an alias of `idcp`.)
 
-On `hosted-single-tenant-volume`, shell is disabled (`process_backend=none`), so the
-model cannot run `idcp` yet — see `deploy/identyclaw/README.md` (processless path).
+On `hosted-single-tenant-volume`, shell is disabled (`process_backend=none`); the
+model should use **`builtin.idcp`** instead of the `idcp` CLI.
 
 ## Secrets checklist
 

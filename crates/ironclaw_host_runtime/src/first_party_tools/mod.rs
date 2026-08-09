@@ -8,6 +8,7 @@
 mod echo;
 mod http;
 mod http_output;
+mod idcp;
 mod json;
 mod memory;
 mod model_visible_output;
@@ -48,6 +49,7 @@ pub(crate) use self::schemas::resolve_builtin_input_schema_ref;
 
 pub use echo::ECHO_CAPABILITY_ID;
 pub use http::{HTTP_CAPABILITY_ID, HTTP_SAVE_CAPABILITY_ID};
+pub use idcp::{IDCP_CAPABILITY_ID, set_test_helper_base_override as set_test_idcp_helper_base_override};
 pub use json::JSON_CAPABILITY_ID;
 pub use memory::{
     MEMORY_READ_CAPABILITY_ID, MEMORY_SEARCH_CAPABILITY_ID, MEMORY_TREE_CAPABILITY_ID,
@@ -174,6 +176,7 @@ pub fn builtin_first_party_package() -> Result<ExtensionPackage, ExtensionError>
                     json::manifest()?,
                     http::manifest()?,
                     http::save_manifest()?,
+                    idcp::manifest()?,
                     shell::manifest()?,
                     spawn_subagent::manifest()?,
                     trace_commons::onboard_manifest()?,
@@ -376,6 +379,7 @@ fn builtin_first_party_base_registry() -> Result<FirstPartyCapabilityRegistry, H
         .with_handler(CapabilityId::new(JSON_CAPABILITY_ID)?, handler.clone())
         .with_handler(CapabilityId::new(HTTP_CAPABILITY_ID)?, handler.clone())
         .with_handler(CapabilityId::new(HTTP_SAVE_CAPABILITY_ID)?, handler.clone())
+        .with_handler(CapabilityId::new(IDCP_CAPABILITY_ID)?, handler.clone())
         .with_handler(
             CapabilityId::new(MEMORY_SEARCH_CAPABILITY_ID)?,
             handler.clone(),
@@ -483,6 +487,7 @@ impl FirstPartyCapabilityHandler for BuiltinFirstPartyTools {
                 network_egress_bytes = result.network_egress_bytes;
                 (result.output, None)
             }
+            IDCP_CAPABILITY_ID => (idcp::dispatch(&request.input).await?, None),
             MEMORY_SEARCH_CAPABILITY_ID
             | MEMORY_WRITE_CAPABILITY_ID
             | MEMORY_READ_CAPABILITY_ID

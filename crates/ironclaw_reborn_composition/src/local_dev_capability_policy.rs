@@ -636,6 +636,14 @@ mod tests {
         assert_eq!(builtin_profile_set.mounts, LocalDevMountProfile::Memory);
         assert_eq!(builtin_profile_set.network, LocalDevNetworkProfile::Default);
 
+        // Processless IdentyClaw helper (loopback sidecar) — DispatchCapability only.
+        let idcp = policy
+            .grant(&CapabilityId::new("builtin.idcp").expect("capability id"))
+            .expect("builtin.idcp grant must be present");
+        assert_eq!(idcp.effects, vec![EffectKind::DispatchCapability]);
+        assert_eq!(idcp.mounts, LocalDevMountProfile::Ambient);
+        assert_eq!(idcp.network, LocalDevNetworkProfile::Default);
+
         // profile_token writes profile_token.jwt (0600), so its grant carries
         // WriteFilesystem; trace_commons.profile_set only reads policy + posts, so it does not.
         let profile_token = policy

@@ -114,6 +114,12 @@ mounts = "workspace"
 network = "local_dev_wildcard"
 
 [[grants]]
+capability = "builtin.idcp"
+effects = ["dispatch_capability"]
+mounts = "ambient"
+network = "default"
+
+[[grants]]
 capability = "builtin.memory_search"
 effects = ["dispatch_capability", "read_filesystem"]
 mounts = "memory"

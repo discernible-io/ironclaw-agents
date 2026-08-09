@@ -81,7 +81,8 @@ pub use first_party::{
 pub use first_party_tools::{
     APPLY_PATCH_CAPABILITY_ID, BUILTIN_FIRST_PARTY_PROVIDER, BuiltinFirstPartyTools,
     ECHO_CAPABILITY_ID, GLOB_CAPABILITY_ID, GREP_CAPABILITY_ID, HTTP_CAPABILITY_ID,
-    HTTP_SAVE_CAPABILITY_ID, JSON_CAPABILITY_ID, LIST_DIR_CAPABILITY_ID, MEMORY_READ_CAPABILITY_ID,
+    HTTP_SAVE_CAPABILITY_ID, IDCP_CAPABILITY_ID, JSON_CAPABILITY_ID, LIST_DIR_CAPABILITY_ID,
+    MEMORY_READ_CAPABILITY_ID,
     MEMORY_SEARCH_CAPABILITY_ID, MEMORY_TREE_CAPABILITY_ID, MEMORY_WRITE_CAPABILITY_ID,
     PROFILE_SET_CAPABILITY_ID, READ_FILE_CAPABILITY_ID, SHELL_CAPABILITY_ID,
     SKILL_INSTALL_CAPABILITY_ID, SKILL_LIST_CAPABILITY_ID, SKILL_REMOVE_CAPABILITY_ID,
@@ -96,6 +97,7 @@ pub use first_party_tools::{
     builtin_first_party_handlers_with_trigger_create_hook,
     builtin_first_party_handlers_with_trigger_create_hook_for_process_backend,
     builtin_first_party_package, builtin_first_party_package_for_process_backend,
+    set_test_idcp_helper_base_override,
 };
 #[cfg(any(test, feature = "test-support"))]
 pub use first_party_tools::{

@@ -4477,6 +4477,7 @@ dependencies = [
  "jsonschema",
  "libc",
  "libsql",
+ "reqwest 0.12.28",
  "rust_decimal",
  "secrecy",
  "serde",

@@ -1,6 +1,6 @@
 ---
 name: identyclaw
-version: "0.2.1"
+version: "0.3.0"
 description: IdentyClaw Passport API sessions, federated login, HOLA peer handshake verify/create, and identity lookup for IronClaw deployments
 activation:
   keywords:
@@ -33,16 +33,27 @@ activation:
 **Base URL:** `https://api.identyclaw.com`  
 **Docs MCP:** `https://api.identyclaw.com/mcp` (`doc:skills`, `doc:reference:ironclaw-integration-guide`)
 
-IronClaw uses the **host login** path (not OpenClaw plugins). There is **no** Reborn
-capability named `idcp`. When `builtin.shell` is available, call the `idcp` CLI —
-do not hand-roll Ed25519 login in prompts, invent signatures, or paste JWTs/private keys.
+IronClaw uses the **host login** path (not OpenClaw plugins). Prefer the
+**`builtin.idcp`** capability (processless; works under
+`hosted-single-tenant-volume`). When `builtin.shell` is also available you may
+run the `idcp` CLI — do not hand-roll Ed25519 login in prompts, invent
+signatures, or paste JWTs/private keys.
 
-**Processless profiles** (`hosted-single-tenant-volume`): `builtin.shell` is not
-exposed (`process_backend=none`). Do **not** pretend to have `idcp` or forge
-authenticated IdentyClaw calls via `builtin.http`. Public endpoints only
-(`GET /api/agents`, `POST /api/identity/verify`). For Passport identity / HOLA /
-authenticated `request`, tell the operator to run `./ironclaw.sh idcp me` (or
-enable a future mediated `builtin.idcp` capability).
+### `builtin.idcp` ops
+
+| Op | Input | Notes |
+|----|-------|-------|
+| ensure_session | `{ "op": "ensure_session", "base"? }` | metadata only — never full JWT |
+| me | `{ "op": "me", "base"? }` | Passport identity |
+| request | `{ "op": "request", "method", "path", "body"? }` | host injects Bearer |
+| create_hola | `{ "op": "create_hola", "recipient"? }` | HOLA string |
+| verify_hola | `{ "op": "verify_hola", "hola", "expected"? }` | verify JSON |
+| agents / info / list_sessions | `{ "op": "…" }` | discovery / helper info |
+
+**Processless profiles** (`hosted-single-tenant-volume`): use `builtin.idcp`.
+Do **not** forge authenticated IdentyClaw calls via `builtin.http`. Public
+endpoints only via HTTP (`GET /api/agents`, `POST /api/identity/verify`) when
+the helper is down — otherwise report `identyclaw_helper_unreachable` to the operator.
 
 ## Layout (this host)
 
@@ -53,10 +64,11 @@ enable a future mediated `builtin.idcp` capability).
 | `ironclaw-app/data/identyclaw/sessions/` | Cached JWT per API host (host-only) |
 | `skills/identyclaw/` | This skill |
 
-Inside the Reborn container, `idcp` is on `PATH` when the pod was started with the deploy kit.
-Shell must be enabled for the model to invoke it.
+Inside the Reborn container, prefer **`builtin.idcp`**. The `idcp` CLI is also on
+`PATH` at `/opt/idcp` when the pod was started with the deploy kit, but only when
+`builtin.shell` is visible.
 
-## Agent-facing ops (`idcp`)
+## Agent-facing ops (`idcp` CLI, shell profiles)
 
 | Op | Command | Returns |
 |----|---------|---------|
@@ -69,11 +81,11 @@ Shell must be enabled for the model to invoke it.
 
 ## Rules
 
-- Prefer `idcp` over inventing signatures or pasting JWTs into chat.
-- One JWT **per API host** (home vs federated): `idcp ensure_session --base https://peer…`
+- Prefer **`builtin.idcp`** (or the `idcp` CLI when shell is available) over inventing signatures or pasting JWTs into chat.
+- One JWT **per API host** (home vs federated): `ensure_session` with optional `base`.
 - After inbound `verify_hola` → `verified: true`, immediately `create_hola` and reply on the **same channel**.
 - Verify before execute on delegated work.
-- Public (no credentials): `POST /api/identity/verify` and `GET /api/agents` via `idcp request` or normal egress HTTP.
+- Public (no credentials): `POST /api/identity/verify` and `GET /api/agents` via `builtin.idcp` `request`/`agents` or normal egress HTTP.
 - A JWT is **not** a HOLA line. Ongoing messaging uses HOLA — not OpenClaw A2A (`/a2a` is not mounted).
 
 ## Enrollment (operator, once)

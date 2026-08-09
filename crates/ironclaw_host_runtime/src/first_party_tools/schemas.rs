@@ -47,6 +47,61 @@ pub(crate) fn resolve_builtin_input_schema_ref(reference: &str) -> Option<Value>
         }),
         "schemas/builtin/http.input.v1.json" => http_schema(false),
         "schemas/builtin/http-save.input.v1.json" => http_schema(true),
+        "schemas/builtin/idcp.input.v1.json" => json!({
+            "type": "object",
+            "properties": {
+                "op": {
+                    "type": "string",
+                    "enum": [
+                        "ensure_session",
+                        "list_sessions",
+                        "me",
+                        "info",
+                        "agents",
+                        "request",
+                        "create_hola",
+                        "verify_hola",
+                        "enroll"
+                    ],
+                    "description": "IdentyClaw helper operation (same verbs as the idcp CLI)"
+                },
+                "base": {
+                    "type": "string",
+                    "description": "Optional IdentyClaw API base URL for federated hosts (apiEndpoint)"
+                },
+                "method": {
+                    "type": "string",
+                    "description": "HTTP method for op=request (GET, POST, …)"
+                },
+                "path": {
+                    "type": "string",
+                    "description": "API path for op=request (must start with /)"
+                },
+                "body": {
+                    "description": "Optional JSON body for op=request"
+                },
+                "recipient": {
+                    "type": "string",
+                    "description": "HOLA recipient for op=create_hola (default MUNDO)"
+                },
+                "hola": {
+                    "type": "string",
+                    "description": "HOLA string for op=verify_hola"
+                },
+                "expected": {
+                    "type": "string",
+                    "description": "Expected recipient for op=verify_hola"
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "description": "Max agents for op=agents"
+                }
+            },
+            "required": ["op"],
+            "additionalProperties": false
+        }),
         "schemas/builtin/memory_search.input.v1.json" => json!({
             "type": "object",
             "description": "Searches only Reborn internal persistent memory. This does not search connected app or extension data.",

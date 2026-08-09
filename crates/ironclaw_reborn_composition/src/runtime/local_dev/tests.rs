@@ -1922,6 +1922,7 @@ mod tests {
         assert!(capability_ids.contains(&SHELL_CAPABILITY_ID));
         assert!(capability_ids.contains(&HTTP_CAPABILITY_ID));
         assert!(capability_ids.contains(&HTTP_SAVE_CAPABILITY_ID));
+        assert!(capability_ids.contains(&"builtin.idcp"));
         let local_dev_allowed_effects = vec![
             EffectKind::DispatchCapability,
             EffectKind::ReadFilesystem,
