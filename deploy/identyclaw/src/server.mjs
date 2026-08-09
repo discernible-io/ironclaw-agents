@@ -8,8 +8,10 @@ import {
   apiRequest,
   createHola,
   ensureSession,
+  FEDERATED_SESSION_NOTE,
   helperInfo,
   listSessions,
+  normalizeApiUrl,
   verifyHola,
 } from "./lib.mjs";
 
@@ -91,13 +93,32 @@ async function handle(req, res) {
     }
     if (req.method === "GET" && route === "/v1/me") {
       const apiEndpoint = url.searchParams.get("apiEndpoint") || undefined;
+      const homeBase = normalizeApiUrl(
+        process.env.IDENTYCLAW_BASE_URL ||
+          process.env.IDENTYCLAW_API_BASE_URL ||
+          "https://api.identyclaw.com"
+      );
+      const target = normalizeApiUrl(apiEndpoint || homeBase);
+      // Home-only surface (OpenClaw parity). Federated peers share login, not /api/me/identity.
+      if (target !== homeBase) {
+        send(res, 200, {
+          ok: false,
+          home_only: true,
+          apiEndpoint: target,
+          error:
+            "me /api/me/identity is a home IdentyClaw route. Federated login does not imply this path exists on the peer.",
+          note: FEDERATED_SESSION_NOTE,
+          hint: "If ensure_session already returned ok=true for this base, login succeeded — stop. Use request only for product paths the user named.",
+        });
+        return;
+      }
       send(
         res,
         200,
         await apiRequest({
           method: "GET",
           path: "/api/me/identity",
-          apiEndpoint,
+          apiEndpoint: homeBase,
           auth: true,
         })
       );

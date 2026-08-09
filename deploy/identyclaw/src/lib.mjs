@@ -23,6 +23,13 @@ process.env.SUPPRESS_STRICTNESS_CHECK = process.env.SUPPRESS_STRICTNESS_CHECK ||
 const ONE_MINUTE_MS = 60_000;
 const DEFAULT_BASE = "https://api.identyclaw.com";
 
+/** OpenClaw parity: tell the model federated login ≠ home IdentyClaw surface. */
+export const FEDERATED_SESSION_NOTE =
+  "Federated session ready. Peers share Rodit login only — they do not need the same " +
+  "endpoints as api.identyclaw.com. Do not call home tools (me / /api/me/identity / HOLA / " +
+  "agents) against this host. Login is complete when ok=true; stop unless the user named a " +
+  "specific product path. Then use request with the same base. Keep Passport/HOLA/DID on home.";
+
 /** @type {Map<string, { token: string, expiresAtMs: number, federated: boolean, tokenId?: string }>} */
 const memorySessions = new Map();
 
@@ -276,15 +283,17 @@ export async function ensureSession({
   const target = normalizeApiUrl(apiEndpoint || homeBase);
   const cached = loadCachedSession(target);
   if (cached) {
+    const federated = cached.federated || target !== homeBase;
     return {
       ok: true,
       apiEndpoint: target,
-      federated: cached.federated || target !== homeBase,
+      federated,
       tokenId: cached.tokenId || null,
       jwt_length: cached.token.length,
       expiresAtMs: cached.expiresAtMs,
       cached: true,
       via: "cache",
+      ...(federated ? { note: FEDERATED_SESSION_NOTE } : {}),
     };
   }
 
@@ -342,6 +351,7 @@ export async function ensureSession({
     expiresAtMs: entry.expiresAtMs,
     cached: false,
     via: login.via || "wire",
+    ...(federated ? { note: FEDERATED_SESSION_NOTE } : {}),
   };
 }
 

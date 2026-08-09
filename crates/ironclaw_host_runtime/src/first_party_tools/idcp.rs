@@ -66,9 +66,9 @@ pub(super) fn manifest() -> Result<CapabilityManifest, ExtensionError> {
         "IdentyClaw Passport helpers via the host idcp sidecar (ensure_session, me, \
          request, create_hola, verify_hola, agents, info). Prefer this over inventing \
          signatures or pasting JWTs. Never returns private keys or full JWTs. \
-         For federated login to a peer API, pass base with the peer https URL on \
-         ensure_session and the same base on later request/HOLA calls; omit base for home \
-         https://api.identyclaw.com. Do not pass the loopback helper URL as base.",
+         Federated login: pass base=<peer https URL> on ensure_session only — ok+federated \
+         means login succeeded; do not call me against the peer (home-only). Omit base for \
+         home https://api.identyclaw.com. Do not pass the loopback helper URL as base.",
         vec![EffectKind::DispatchCapability],
         PermissionMode::Allow,
         Some(ResourceProfile {

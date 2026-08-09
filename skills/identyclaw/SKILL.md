@@ -1,7 +1,10 @@
 ---
 name: identyclaw
-version: "0.3.2"
-description: IdentyClaw Passport API sessions, federated login to peer apiEndpoints, HOLA peer handshake verify/create, and identity lookup for IronClaw deployments
+version: "0.3.5"
+description: >-
+  IdentyClaw Passport sessions and federated peer login via builtin.idcp.
+  Use for log in / login to IdentyClaw or discernible peer APIs (slcapi, etc.),
+  HOLA, Passport, and apiEndpoint federation — never hand-roll HTTP login.
 activation:
   keywords:
     - "identyclaw"
@@ -15,6 +18,10 @@ activation:
     - "federated"
     - "federated login"
     - "apiEndpoint"
+    - "log in"
+    - "login"
+    - "slcapi"
+    - "discernible"
   exclude_keywords:
     - "openclaw plugin install"
   patterns:
@@ -27,102 +34,81 @@ activation:
     - "(?i)federat"
     - "(?i)apiEndpoint"
     - "(?i)ensure[_ ]session"
+    - "(?i)log\\s*in\\s+to"
+    - "(?i)\\blogin\\b.*https?://"
+    - "(?i)https?://[^\\s]*discernible\\.io"
+    - "(?i)https?://[^\\s]*slcapi"
+    - "(?i)https?://[^\\s]*identyclaw"
   tags:
     - "identity"
     - "auth"
     - "interop"
-  max_context_tokens: 2200
+  max_context_tokens: 1600
 ---
 
 # IdentyClaw (IronClaw)
 
-**Home API:** `https://api.identyclaw.com`  
-**Docs MCP:** `https://api.identyclaw.com/mcp` (`doc:skills`, `doc:reference:ironclaw-integration-guide`)
+**Home (native IdentyClaw):** `https://api.identyclaw.com`  
+**Federated peer:** any other Rodit-login HTTPS host (e.g. `https://slcapi.discernible.io:9443`)
 
-Prefer **`builtin.idcp`**. Do not invent Ed25519 login, paste JWTs/private keys, or
-use `builtin.http` for authenticated IdentyClaw calls.
+These are **not** the same product surface. Federation shares **Rodit login only**
+(timestamp → sign → JWT per host). A federated API **does not** need — and usually
+**does not have** — the same endpoints as `api.identyclaw.com` (`/api/me/identity`,
+HOLA, `/api/agents`, DID, …). Peer routes are whatever that product exposes.
 
-## Critical: two different “bases”
+## Login recipes (stop when done)
 
-| Name | Meaning | Who sets it |
-|------|---------|-------------|
-| Helper loopback | `http://127.0.0.1:3921` — private host sidecar | Operator / deploy (`IDENTYCLAW_HELPER_BASE`) — **never** pass this as `base` |
-| `base` / peer `apiEndpoint` | Public IdentyClaw or federated peer HTTPS API | **You** pass this on `builtin.idcp` when not using home |
-
-Omit `base` → home (`https://api.identyclaw.com`).  
-Set `base` → **federated login** to that peer (re-mint a JWT for that host).
-
-## Federated login (exact recipe)
-
-Federation is **not** “send the home JWT to another site.” It is: same Passport
-keys on the host, **re-login** against the peer URL, cache a **per-host** JWT.
-
-When the user names a peer API (e.g. `https://slc.discernible.io:8443` or any
-`https://…` IdentyClaw-compatible host):
-
-1. Call **only** `builtin.idcp` — do **not** open MCP docs, `builtin.http`, or
-   hand-rolled `/api/login` (those burn approvals and often fail with
-   “input could not be encoded”).
-2. `{ "op": "ensure_session", "base": "<peer-https-url>" }`
-3. Confirm `ok: true` (and usually `federated: true`). Never ask the user for a JWT.
-4. Peer routes with the **same** `base`:
-   `{ "op": "request", "method": "GET", "path": "/api/…", "base": "<peer-https-url>" }`
-5. Optional: `{ "op": "list_sessions" }` to see cached home vs federated hosts.
-6. Passport / HOLA / DID on **home** → omit `base`.
-
-Home-only identity:
+### Native / home
 
 ```json
 { "op": "ensure_session" }
-{ "op": "me" }
 ```
 
-Federated peer:
+Optional: `{ "op": "me" }` (omit `base`) — home Passport identity only.
+
+### Federated peer (user named a non-home HTTPS URL)
 
 ```json
-{ "op": "ensure_session", "base": "https://peer.example.com" }
-{ "op": "request", "method": "GET", "path": "/api/health", "base": "https://peer.example.com" }
+{ "op": "ensure_session", "base": "https://slcapi.discernible.io:9443" }
 ```
 
-If `ensure_session` fails for a peer, report the helper error and stop — do not
-fall back to pasting tokens or MCP “login guide” fetches.
+If `ok: true` and `federated: true` → **login succeeded. Reply and stop.**
+
+Do **not** then call:
+- `me` with that peer `base` (home-only; 404 is expected, not a failed login)
+- `/api/health`, `/api`, root GET, OpenAPI probes, `builtin.http`, `result_read` loops
+- HOLA / agents / DID against the peer
+
+Only if the user asks for a **named product route** on that peer:
+
+```json
+{ "op": "request", "method": "GET", "path": "/their/path", "base": "https://slcapi.discernible.io:9443" }
+```
+
+## Home vs federated (do not assume shared routes)
+
+| Concept | Home (`api.identyclaw.com`) | Federated peer |
+|---------|----------------------------|----------------|
+| How you log in | `ensure_session` (no `base`) | `ensure_session` + peer `base` |
+| Success means | JWT for home | JWT for **that host only** |
+| Endpoint set | IdentyClaw Passport/HOLA/DID | **Peer-specific — not a copy of home** |
+| `me` / `/api/me/identity` | Yes | **Do not call** (404 ≠ login failure) |
+| After login | optional `me` | **stop**, unless user named a product path |
+
+Call **`builtin.idcp` only**. Never hand-roll `/api/login`. Never pass `http://127.0.0.1:3921` as `base`.
+
 ## `builtin.idcp` ops
 
-| Op | Input | Notes |
-|----|-------|-------|
-| ensure_session | `{ "op": "ensure_session", "base"? }` | Mint/cache JWT for home or peer — never returns JWT |
-| me | `{ "op": "me", "base"? }` | Passport identity (usually home) |
-| request | `{ "op": "request", "method", "path", "body"?, "base"? }` | Host injects Bearer for that host |
-| create_hola | `{ "op": "create_hola", "recipient"?, "base"? }` | HOLA string |
-| verify_hola | `{ "op": "verify_hola", "hola", "expected"?, "base"? }` | verify JSON |
-| agents / info / list_sessions | `{ "op": "…" }` | discovery / helper info |
-
-**Processless profiles** (`hosted-single-tenant-volume`): always use `builtin.idcp`
-(shell/`idcp` CLI may be unavailable).
+| Op | Home | Federated |
+|----|------|-----------|
+| ensure_session | omit `base` | pass peer URL as `base` |
+| me | omit `base` | **do not use** for login verification |
+| request | omit `base` | same peer `base` + product path |
+| create_hola / verify_hola / agents | home | do not assume peer has these |
 
 ## Rules
 
-- Prefer **`builtin.idcp`** over inventing signatures or pasting JWTs into chat.
-- **One JWT per API host** — always pass the peer URL as `base` for federated work.
-- After inbound `verify_hola` → `verified: true`, immediately `create_hola` and reply on the **same channel**.
-- Verify before execute on delegated work.
-- Public unauthenticated reads only: `GET /api/agents`, `POST /api/identity/verify` (via `builtin.idcp` `agents`/`request` without needing a session when the API allows).
-- A JWT is **not** a HOLA line. Ongoing messaging uses HOLA — not OpenClaw A2A.
-
-## Layout (operator)
-
-| Path | Role |
-|------|------|
-| `deploy/identyclaw/` | Helper + optional `idcp` CLI |
-| `ironclaw-app/secrets/near-credentials/` | Passport NEAR key (host-only) |
-| `ironclaw-app/data/identyclaw/sessions/` | Cached JWT **per API host** (host-only) |
-
-## Enrollment (operator, once)
-
-```bash
-./ironclaw.sh idcp-init
-./ironclaw.sh idcp enroll
-# Human: https://purchase.identyclaw.com with account_id
-./ironclaw.sh build-image && ./ironclaw.sh start
-./ironclaw.sh idcp ensure_session && ./ironclaw.sh idcp me
-```
+- Prefer **`builtin.idcp`** — never paste JWTs/keys.
+- Federated `ensure_session` success **is** the login; do not “confirm” with home tools on the peer.
+- If `ensure_session` fails, report the error and stop.
+- After inbound `verify_hola` → `verified: true`, immediately `create_hola` on the same channel (home).
