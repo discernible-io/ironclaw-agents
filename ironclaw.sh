@@ -108,16 +108,25 @@ cmd_build_image() {
   tier="$(ironclaw_deploy_tier)"
   port="$(ironclaw_tier_port)"
   nginx_env="$(ironclaw_nginx_build_env)"
-  echo "==> Building localhost/ironclaw-reborn:${tag}"
-  podman build -f "$ROOT/Dockerfile.reborn" -t "localhost/ironclaw-reborn:${tag}" "$ROOT"
+  # --layers keeps intermediate stages (chef cook) reusable. Do not pass
+  # --no-cache unless deliberately busting. Dockerfile also uses
+  # Buildah cache mounts for cargo registry/target + pnpm so source-only
+  # rebuilds stay incremental across builds.
+  echo "==> Building localhost/ironclaw-reborn:${tag} (layered + cargo/pnpm cache mounts)"
+  podman build --layers \
+    -f "$ROOT/Dockerfile" \
+    -t "localhost/ironclaw-reborn:${tag}" \
+    "$ROOT"
   echo "==> Building localhost/ironclaw-nginx:${tag} (NODE_ENV=${nginx_env}, port=${port})"
-  podman build -f "$ROOT/nginx.Dockerfile" \
+  podman build --layers \
+    -f "$ROOT/nginx.Dockerfile" \
     --build-arg "NODE_ENV=${nginx_env}" \
     --build-arg "INGRESS_PORT=${port}" \
     -t "localhost/ironclaw-nginx:${tag}" \
     "$ROOT"
   echo "==> Building localhost/ironclaw-identyclaw:${tag}"
-  podman build -f "$ROOT/deploy/identyclaw/Containerfile" \
+  podman build --layers \
+    -f "$ROOT/deploy/identyclaw/Containerfile" \
     -t "localhost/ironclaw-identyclaw:${tag}" \
     "$ROOT/deploy/identyclaw"
 }

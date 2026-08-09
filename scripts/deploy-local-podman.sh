@@ -69,16 +69,18 @@ if [[ ! -f "$SECRETS_FILE" ]]; then
 fi
 
 build_images() {
-  echo "==> Building ${REBORN_IMAGE} (Dockerfile.reborn)"
-  podman build -f "$REPO_ROOT/Dockerfile.reborn" -t "$REBORN_IMAGE" "$REPO_ROOT"
+  # Prefer layered builds + Dockerfile cache mounts (cargo/pnpm).
+  # Avoid --no-cache unless intentionally forcing a cold rebuild.
+  echo "==> Building ${REBORN_IMAGE} (Dockerfile, layered)"
+  podman build --layers -f "$REPO_ROOT/Dockerfile" -t "$REBORN_IMAGE" "$REPO_ROOT"
   echo "==> Building ${NGINX_IMAGE} (NODE_ENV=${NGINX_BUILD_ENV}, INGRESS_PORT=${APP_PORT})"
-  podman build -f "$REPO_ROOT/nginx.Dockerfile" \
+  podman build --layers -f "$REPO_ROOT/nginx.Dockerfile" \
     --build-arg "NODE_ENV=${NGINX_BUILD_ENV}" \
     --build-arg "INGRESS_PORT=${APP_PORT}" \
     -t "$NGINX_IMAGE" \
     "$REPO_ROOT"
   echo "==> Building ${IDENTYCLAW_IMAGE} (deploy/identyclaw/Containerfile)"
-  podman build -f "$REPO_ROOT/deploy/identyclaw/Containerfile" \
+  podman build --layers -f "$REPO_ROOT/deploy/identyclaw/Containerfile" \
     -t "$IDENTYCLAW_IMAGE" \
     "$REPO_ROOT/deploy/identyclaw"
 }
