@@ -27,6 +27,7 @@
 
 <p align="center">
   <a href="#ironclaw-reborn-quick-start">Reborn Quick Start</a> •
+  <a href="#identyclaw-passport-builtinidcp">IdentyClaw</a> •
   <a href="#philosophy">Philosophy</a> •
   <a href="#features">Features</a> •
   <a href="#installation">Installation</a> •
@@ -219,6 +220,55 @@ the current branch.
 secure-default runtime policy, and disables process-backed tools such as shell.
 It is intended for single-tenant preview deployments on a persistent volume,
 not as the full PostgreSQL production composition.
+
+### IdentyClaw Passport (`builtin.idcp`)
+
+IronClaw agents talk to [IdentyClaw](https://api.identyclaw.com) through a
+**built-in host capability**, not a plugin or installable extension.
+
+| Piece | Role |
+| --- | --- |
+| **`builtin.idcp`** | First-party capability (same class as `builtin.http`) compiled into `ironclaw-reborn` |
+| **`skills/identyclaw/`** | Runtime skill that steers the model to prefer that capability |
+| **Helper sidecar** | Loopback-only Node service that holds NEAR Passport keys and JWTs (`deploy/identyclaw/`) |
+| **`./ironclaw.sh idcp`** | Host operator CLI (aliases: `identyclaw`) |
+
+```text
+Agent turn → builtin.idcp → http://127.0.0.1:3921 (helper) → api.identyclaw.com
+```
+
+Passport private keys and full JWTs never reach the model. The helper injects
+Bearer tokens; `builtin.idcp` returns redacted JSON only.
+
+This works on **processless** profiles such as `hosted-single-tenant-volume`
+(`process_backend=none`): `builtin.idcp` declares only `DispatchCapability`, so
+it stays visible when `builtin.shell` does not. On shell-enabled profiles the
+`idcp` CLI on `PATH` (`/opt/idcp/bin/idcp` in the Podman pod) is an optional
+alternative with the same verbs.
+
+#### Enable on a host (once)
+
+Using the Podman deploy kit in this fork:
+
+```bash
+./ironclaw.sh idcp-init
+./ironclaw.sh idcp enroll
+# Mint a Passport at https://purchase.identyclaw.com with the printed account_id
+./ironclaw.sh build-image && ./ironclaw.sh start
+./ironclaw.sh idcp ensure_session && ./ironclaw.sh idcp me
+```
+
+Any Reborn agent on that host then shares the same Passport via the sidecar.
+In chat, ask for identity / HOLA / Passport work — the skill steers the model
+to calls such as `{ "op": "me" }` or `{ "op": "ensure_session" }`.
+
+Supported ops: `ensure_session`, `me`, `request`, `create_hola`, `verify_hola`,
+`agents`, `info`, `list_sessions`. Enrollment stays host-only
+(`./ironclaw.sh idcp enroll`).
+
+Details: [`deploy/identyclaw/README.md`](deploy/identyclaw/README.md),
+[`deploy/podman/README.md`](deploy/podman/README.md),
+[`skills/identyclaw/SKILL.md`](skills/identyclaw/SKILL.md).
 
 `local-dev-yolo` grants trusted-laptop host access and must be confirmed
 explicitly:
