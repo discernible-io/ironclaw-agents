@@ -21,7 +21,8 @@ use ironclaw_turns::{
     run_profile::{
         AgentLoopDriver, AgentLoopDriverDescriptor, AgentLoopDriverError, AgentLoopDriverHost,
         AgentLoopDriverResumeRequest, AgentLoopDriverRunRequest, AgentLoopHostError,
-        LoadCheckpointPayloadRequest, LoopCheckpointKind, LoopDriverId, LoopRunContext,
+        AgentLoopHostErrorKind, LoadCheckpointPayloadRequest, LoopCheckpointKind, LoopDriverId,
+        LoopRunContext,
     },
 };
 
@@ -334,6 +335,23 @@ pub(crate) fn map_executor_error(error: AgentLoopExecutorError) -> AgentLoopDriv
                 let detail = detail.or_else(|| Some(safe_summary.as_str().to_string()));
                 return AgentLoopDriverError::Failed {
                     reason_kind: category.to_string(),
+                    detail,
+                };
+            }
+            // Transcript append failures (often observed on the capability
+            // invoke/append path after a successful tool call) must keep the
+            // transcript_write_failed category — matching text_loop_driver —
+            // rather than collapsing into a misleading Capability Unavailable.
+            if matches!(
+                (stage, kind),
+                (
+                    HostStage::Transcript,
+                    AgentLoopHostErrorKind::TranscriptWriteFailed
+                )
+            ) {
+                let detail = detail.or_else(|| Some(safe_summary.as_str().to_string()));
+                return AgentLoopDriverError::Failed {
+                    reason_kind: LoopFailureKind::TranscriptWriteFailed.as_str().to_string(),
                     detail,
                 };
             }
@@ -661,6 +679,29 @@ mod tests {
             mapped,
             AgentLoopDriverError::Unavailable {
                 reason: format!("Prompt: {CREDENTIAL_SUMMARY}")
+            }
+        );
+    }
+
+    /// Regression: transcript append failures observed on the capability path
+    /// must become Failed{transcript_write_failed} with scrubbed detail, not
+    /// Capability Unavailable ("check the tool integration").
+    #[test]
+    fn transcript_write_failed_diagnostics_map_to_transcript_write_failed_category() {
+        let mapped = map_executor_error(AgentLoopExecutorError::HostUnavailableWithDiagnostics {
+            stage: HostStage::Transcript,
+            kind: AgentLoopHostErrorKind::TranscriptWriteFailed,
+            safe_summary: LoopSafeSummary::new("assistant transcript write failed").expect("safe"),
+            reason_kind: None,
+            diagnostic_ref: None,
+            detail: Some("provider response reasoning exceeds 16384 bytes".to_string()),
+        });
+
+        assert_eq!(
+            mapped,
+            AgentLoopDriverError::Failed {
+                reason_kind: "transcript_write_failed".to_string(),
+                detail: Some("provider response reasoning exceeds 16384 bytes".to_string()),
             }
         );
     }

@@ -45,7 +45,13 @@ pub(crate) fn sanitized_driver_failure(
 ) -> Option<SanitizedFailure> {
     let base = if matches!(
         reason_kind,
-        MODEL_CREDITS_EXHAUSTED_CATEGORY | MODEL_CREDENTIALS_UNAVAILABLE_CATEGORY
+        MODEL_CREDITS_EXHAUSTED_CATEGORY
+            | MODEL_CREDENTIALS_UNAVAILABLE_CATEGORY
+            // Preserve transcript_write_failed through the executor boundary so
+            // the failure explainer keeps the honest transcript message instead
+            // of collapsing to generic driver_failed (paired with planned_driver
+            // mapping HostUnavailableWithDiagnostics TranscriptWriteFailed).
+            | "transcript_write_failed"
     ) {
         match SanitizedFailure::new(reason_kind.to_string()) {
             Ok(failure) => Some(failure),
@@ -53,7 +59,7 @@ pub(crate) fn sanitized_driver_failure(
                 debug!(
                     reason_kind,
                     %error,
-                    "model failure category failed validation; using generic driver failure"
+                    "known failure category failed validation; using generic driver failure"
                 );
                 sanitized_failure("driver_failed")
             }
@@ -130,5 +136,20 @@ mod tests {
 
         assert_eq!(failure.category(), "driver_failed");
         assert_eq!(failure.detail(), Some("HTTP 404 model not found"));
+    }
+
+    #[test]
+    fn sanitized_driver_failure_preserves_transcript_write_failed_category() {
+        let failure = sanitized_driver_failure(
+            "transcript_write_failed",
+            Some("provider response reasoning exceeds 16384 bytes"),
+        )
+        .expect("transcript_write_failed is a known category");
+
+        assert_eq!(failure.category(), "transcript_write_failed");
+        assert_eq!(
+            failure.detail(),
+            Some("provider response reasoning exceeds 16384 bytes")
+        );
     }
 }

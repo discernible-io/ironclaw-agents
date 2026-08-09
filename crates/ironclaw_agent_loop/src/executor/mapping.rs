@@ -2,7 +2,7 @@ use ironclaw_turns::{
     LoopBlockedKind, LoopFailureKind, SanitizedFailure,
     run_profile::{
         AgentLoopHostError, AgentLoopHostErrorKind, BatchPolicyKind, CapabilityFailureKind,
-        CapabilityOutcome, LoopCheckpointKind, LoopGateKind,
+        CapabilityOutcome, LoopCheckpointKind, LoopGateKind, LoopSafeSummary,
     },
 };
 
@@ -119,13 +119,33 @@ pub(super) fn capability_host_error(error: AgentLoopHostError) -> AgentLoopExecu
     if error.kind == AgentLoopHostErrorKind::Cancelled {
         return AgentLoopExecutorError::Cancelled;
     }
+    // Transcript append failures surface through capability invoke/append
+    // helpers (the capability already ran; writing its tool-result reference
+    // failed). Map them to the transcript stage so the runner does not label
+    // them as a broken capability/tool integration.
+    let stage = match error.kind {
+        AgentLoopHostErrorKind::TranscriptWriteFailed => HostStage::Transcript,
+        AgentLoopHostErrorKind::CheckpointRejected => HostStage::Checkpoint,
+        _ => HostStage::Capability,
+    };
     tracing::warn!(
         kind = error.kind.as_str(),
         safe_summary = error.safe_summary.as_str(),
+        detail = error.detail.as_deref().unwrap_or(""),
+        stage = ?stage,
         "capability host error mapped to HostUnavailable"
     );
-    AgentLoopExecutorError::HostUnavailable {
-        stage: HostStage::Capability,
+    let detail = error.detail.clone();
+    let safe_summary = LoopSafeSummary::new(error.safe_summary.clone()).unwrap_or_else(|_| {
+        LoopSafeSummary::tool_failure_details_redacted()
+    });
+    AgentLoopExecutorError::HostUnavailableWithDiagnostics {
+        stage,
+        kind: error.kind,
+        safe_summary,
+        reason_kind: error.reason_kind,
+        diagnostic_ref: error.diagnostic_ref,
+        detail,
     }
 }
 
@@ -375,5 +395,59 @@ mod tests {
             model_error_class(&error),
             Some(ModelErrorClass::InvalidOutput)
         );
+    }
+
+    /// Regression: transcript append failures that surface through capability
+    /// invoke/append helpers must map to the transcript host stage (not
+    /// Capability) and preserve scrubbed detail for operator logs / explainers.
+    #[test]
+    fn transcript_write_failed_maps_to_transcript_stage_with_detail() {
+        let error = AgentLoopHostError::new(
+            AgentLoopHostErrorKind::TranscriptWriteFailed,
+            "assistant transcript write failed",
+        )
+        .with_detail("provider response reasoning exceeds 16384 bytes");
+
+        match capability_host_error(error) {
+            AgentLoopExecutorError::HostUnavailableWithDiagnostics {
+                stage,
+                kind,
+                detail,
+                safe_summary,
+                ..
+            } => {
+                assert_eq!(stage, HostStage::Transcript);
+                assert_eq!(kind, AgentLoopHostErrorKind::TranscriptWriteFailed);
+                assert_eq!(
+                    detail.as_deref(),
+                    Some("provider response reasoning exceeds 16384 bytes")
+                );
+                assert_eq!(safe_summary.as_str(), "assistant transcript write failed");
+            }
+            other => panic!("expected HostUnavailableWithDiagnostics, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_transcript_capability_host_errors_remain_capability_stage() {
+        let error = AgentLoopHostError::new(
+            AgentLoopHostErrorKind::Internal,
+            "capability host is unavailable",
+        )
+        .with_detail("filesystem CAS retries exhausted");
+
+        match capability_host_error(error) {
+            AgentLoopExecutorError::HostUnavailableWithDiagnostics {
+                stage,
+                kind,
+                detail,
+                ..
+            } => {
+                assert_eq!(stage, HostStage::Capability);
+                assert_eq!(kind, AgentLoopHostErrorKind::Internal);
+                assert_eq!(detail.as_deref(), Some("filesystem CAS retries exhausted"));
+            }
+            other => panic!("expected HostUnavailableWithDiagnostics, got {other:?}"),
+        }
     }
 }

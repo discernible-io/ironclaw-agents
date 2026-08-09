@@ -1,7 +1,8 @@
 use ironclaw_host_api::{CapabilityId, INPUT_ENCODE_HUMAN_SUMMARY, ProviderToolName};
 use ironclaw_safety::{
-    validate_optional_provider_metadata_text, validate_provider_arguments,
-    validate_provider_identity, validate_provider_token, validate_provider_tool_name,
+    PROVIDER_METADATA_TEXT_MAX_BYTES, validate_optional_provider_metadata_text,
+    validate_provider_arguments, validate_provider_identity, validate_provider_token,
+    validate_provider_tool_name,
 };
 use serde::{Deserialize, Serialize};
 
@@ -132,13 +133,27 @@ impl ProviderToolCallReferenceEnvelope {
         validate_provider_tool_name(self.provider_tool_name.as_str())
             .map_err(|error| error.to_string())?;
         validate_provider_arguments(&self.arguments).map_err(|error| error.to_string())?;
+        // Must match provider-tool-call registration
+        // (`ironclaw_loop_host` / `PROVIDER_METADATA_TEXT_MAX_BYTES`). A tighter
+        // transcript-only cap (previously hardcoded 4096) accepted long
+        // reasoning into the run then rejected it when appending the successful
+        // tool-result reference — terminalizing the turn as a misleading
+        // "capability stage unavailable" failure.
         validate_optional_provider_text(
             &self.response_reasoning,
             "provider response reasoning",
-            4096,
+            PROVIDER_METADATA_TEXT_MAX_BYTES,
         )?;
-        validate_optional_provider_text(&self.reasoning, "provider reasoning", 4096)?;
-        validate_optional_provider_text(&self.signature, "provider signature", 4096)?;
+        validate_optional_provider_text(
+            &self.reasoning,
+            "provider reasoning",
+            PROVIDER_METADATA_TEXT_MAX_BYTES,
+        )?;
+        validate_optional_provider_text(
+            &self.signature,
+            "provider signature",
+            PROVIDER_METADATA_TEXT_MAX_BYTES,
+        )?;
         Ok(())
     }
 }
@@ -1007,8 +1022,8 @@ mod tests {
     use ironclaw_host_api::{CapabilityId, ProviderToolName};
 
     use super::{
-        INPUT_ENCODE_HUMAN_SUMMARY, ProviderToolCallReferenceEnvelope, ToolResultReferenceEnvelope,
-        ToolResultSafeSummary,
+        INPUT_ENCODE_HUMAN_SUMMARY, PROVIDER_METADATA_TEXT_MAX_BYTES,
+        ProviderToolCallReferenceEnvelope, ToolResultReferenceEnvelope, ToolResultSafeSummary,
     };
 
     #[test]
@@ -1517,6 +1532,33 @@ mod tests {
         let mut envelope = provider_reference();
         envelope.arguments = serde_json::json!({});
         envelope.validate().expect("safe provider metadata");
+    }
+
+    /// Regression: transcript provider-metadata caps must stay aligned with
+    /// `PROVIDER_METADATA_TEXT_MAX_BYTES` used at tool-call registration. A
+    /// hardcoded 4096-byte transcript cap accepted DeepSeek-length
+    /// `response_reasoning` into the run, then failed
+    /// `append_tool_result_reference` and killed the turn.
+    #[test]
+    fn provider_reference_accepts_response_reasoning_at_shared_metadata_cap() {
+        let mut envelope = provider_reference();
+        envelope.response_reasoning = Some("r".repeat(PROVIDER_METADATA_TEXT_MAX_BYTES));
+        envelope
+            .validate()
+            .expect("reasoning at the shared provider metadata cap must validate");
+    }
+
+    #[test]
+    fn provider_reference_rejects_response_reasoning_above_shared_metadata_cap() {
+        let mut envelope = provider_reference();
+        envelope.response_reasoning = Some("r".repeat(PROVIDER_METADATA_TEXT_MAX_BYTES + 1));
+        let error = envelope
+            .validate()
+            .expect_err("reasoning above the shared provider metadata cap must fail");
+        assert!(
+            error.contains("provider response reasoning exceeds"),
+            "unexpected validation error: {error}"
+        );
     }
 
     fn provider_reference() -> ProviderToolCallReferenceEnvelope {

@@ -747,6 +747,47 @@ async fn append_tool_result_reference_accepts_multiline_provider_arguments() {
     assert_eq!(record.tool_result_provider_call, Some(provider_call));
 }
 
+/// Caller-level regression for the DeepSeek-length reasoning mismatch: tool-call
+/// registration accepts `PROVIDER_METADATA_TEXT_MAX_BYTES`, so transcript append
+/// must accept the same size or the successful capability never gets a
+/// tool-result reference and the run dies as HostUnavailable.
+#[tokio::test]
+async fn append_tool_result_reference_accepts_response_reasoning_at_shared_metadata_cap() {
+    use ironclaw_safety::PROVIDER_METADATA_TEXT_MAX_BYTES;
+
+    let service = InMemorySessionThreadService::default();
+    let scope = scope("tool-result-long-reasoning");
+    let thread = service
+        .ensure_thread(EnsureThreadRequest {
+            scope: scope.clone(),
+            thread_id: Some(ThreadId::new("thread-tool-result-long-reasoning").unwrap()),
+            created_by_actor_id: "actor-a".into(),
+            title: None,
+            metadata_json: None,
+        })
+        .await
+        .unwrap();
+    let mut provider_call = provider_call_reference();
+    provider_call.response_reasoning = Some("r".repeat(PROVIDER_METADATA_TEXT_MAX_BYTES));
+    provider_call.reasoning = None;
+    provider_call.signature = None;
+
+    let record = service
+        .append_tool_result_reference(AppendToolResultReferenceRequest {
+            scope,
+            thread_id: thread.thread_id,
+            turn_run_id: "run-1".into(),
+            result_ref: "result:demo-long-reasoning".into(),
+            safe_summary: ToolResultSafeSummary::new("capability completed").unwrap(),
+            provider_call: Some(provider_call.clone()),
+            model_observation: None,
+        })
+        .await
+        .expect("append must accept reasoning at the shared provider metadata cap");
+
+    assert_eq!(record.tool_result_provider_call, Some(provider_call));
+}
+
 #[tokio::test]
 async fn append_tool_result_reference_backfills_provider_metadata_on_idempotent_retry() {
     let service = InMemorySessionThreadService::default();
