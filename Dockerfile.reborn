@@ -2,6 +2,15 @@
 #
 # Build:
 #   docker build -f Dockerfile.reborn -t ironclaw-reborn:latest .
+#   podman build -f Dockerfile.reborn -t localhost/ironclaw-reborn:local .
+#
+# Caching strategy (keep this when editing):
+# - cargo-chef: dependency cook layer stays cached until Cargo.toml/Cargo.lock
+#   (recipe) change.
+# - BuildKit/Buildah cache mounts: cargo registry/git + /app/target + pnpm store
+#   survive across builds so source-only edits do incremental compiles instead of
+#   cold-rebuilding the world. Final binaries are copied out of the target cache
+#   into /out/ because cache mounts are not part of the image filesystem.
 #
 # Run locally:
 #   docker run --rm --env-file .env.reborn -p 127.0.0.1:3000:3000 ironclaw-reborn:latest
@@ -30,12 +39,19 @@ RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 
 WORKDIR /app
 
+# Shared cache mount ids for cook + build (must match across stages).
+# PNPM_STORE_DIR keeps the store on a cache mount instead of the image layer.
+ENV CARGO_PROFILE_DIST_PANIC=abort \
+    CARGO_PROFILE_DIST_CODEGEN_UNITS=1 \
+    PNPM_STORE_DIR=/var/cache/pnpm-store
+
 FROM chef AS planner
 
+# Recipe inputs only — omit skills/ (embedded at compile time, not Cargo deps)
+# so skill-only edits do not invalidate prepare/cook layers.
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 COPY tools/ironclaw_stress/ tools/ironclaw_stress/
-COPY skills/ skills/
 COPY tests/ tests/
 COPY wit/ wit/
 COPY providers.json providers.json
@@ -47,25 +63,26 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS deps
 
-ENV CARGO_PROFILE_DIST_PANIC=abort \
-    CARGO_PROFILE_DIST_CODEGEN_UNITS=1
-
 COPY --from=planner /app/recipe.json recipe.json
 COPY crates/ironclaw_webui_v2/frontend/ crates/ironclaw_webui_v2/frontend/
 WORKDIR /app/crates/ironclaw_webui_v2/frontend
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=ironclaw-reborn-pnpm,target=/var/cache/pnpm-store,sharing=locked \
+    pnpm install --frozen-lockfile
 WORKDIR /app
-RUN cargo chef cook \
-    --profile dist \
-    --package ironclaw_reborn_cli \
-    --features webui-v2-beta,slack-v2-host-beta,libsql,postgres,inmemory-turn-state \
-    --recipe-path recipe.json
-RUN cargo chef cook \
-    --profile dist \
-    --package ironclaw_reborn_migration \
-    --no-default-features \
-    --features libsql \
-    --recipe-path recipe.json
+RUN --mount=type=cache,id=ironclaw-reborn-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=ironclaw-reborn-cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=ironclaw-reborn-cargo-target,target=/app/target,sharing=locked \
+    cargo chef cook \
+        --profile dist \
+        --package ironclaw_reborn_cli \
+        --features webui-v2-beta,slack-v2-host-beta,libsql,postgres,inmemory-turn-state \
+        --recipe-path recipe.json \
+    && cargo chef cook \
+        --profile dist \
+        --package ironclaw_reborn_migration \
+        --no-default-features \
+        --features libsql \
+        --recipe-path recipe.json
 
 FROM deps AS builder
 
@@ -82,21 +99,30 @@ RUN mkdir -p src \
     && printf '\n' > src/lib.rs
 
 WORKDIR /app/crates/ironclaw_webui_v2/frontend
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=ironclaw-reborn-pnpm,target=/var/cache/pnpm-store,sharing=locked \
+    pnpm install --frozen-lockfile
 WORKDIR /app
 
-RUN cargo build \
-    --profile dist \
-    --package ironclaw_reborn_cli \
-    --features webui-v2-beta,slack-v2-host-beta,libsql,postgres,inmemory-turn-state \
-    --bin ironclaw-reborn
-
-RUN cargo build \
-    --profile dist \
-    --package ironclaw_reborn_migration \
-    --no-default-features \
-    --features libsql \
-    --bin ironclaw-reborn-extension-ownership-migration
+# Build into the persistent target cache, then copy binaries into /out for the
+# runtime stage (cache mounts are invisible to later COPY --from=...).
+RUN --mount=type=cache,id=ironclaw-reborn-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=ironclaw-reborn-cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=ironclaw-reborn-cargo-target,target=/app/target,sharing=locked \
+    cargo build \
+        --profile dist \
+        --package ironclaw_reborn_cli \
+        --features webui-v2-beta,slack-v2-host-beta,libsql,postgres,inmemory-turn-state \
+        --bin ironclaw-reborn \
+    && cargo build \
+        --profile dist \
+        --package ironclaw_reborn_migration \
+        --no-default-features \
+        --features libsql \
+        --bin ironclaw-reborn-extension-ownership-migration \
+    && mkdir -p /out \
+    && cp /app/target/dist/ironclaw-reborn /out/ironclaw-reborn \
+    && cp /app/target/dist/ironclaw-reborn-extension-ownership-migration \
+        /out/ironclaw-reborn-extension-ownership-migration
 
 FROM debian:bookworm-slim AS runtime
 
@@ -108,8 +134,8 @@ RUN apt-get -o Acquire::Retries=3 update \
         sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/target/dist/ironclaw-reborn /usr/local/bin/ironclaw-reborn
-COPY --from=builder /app/target/dist/ironclaw-reborn-extension-ownership-migration /usr/local/bin/ironclaw-reborn-extension-ownership-migration
+COPY --from=builder /out/ironclaw-reborn /usr/local/bin/ironclaw-reborn
+COPY --from=builder /out/ironclaw-reborn-extension-ownership-migration /usr/local/bin/ironclaw-reborn-extension-ownership-migration
 COPY docker/reborn/config.toml /opt/ironclaw/reborn/config.toml
 COPY docker/reborn/config.hosted-single-tenant.toml /opt/ironclaw/reborn/config.hosted-single-tenant.toml
 COPY docker/reborn/config.hosted-single-tenant-volume.toml /opt/ironclaw/reborn/config.hosted-single-tenant-volume.toml
