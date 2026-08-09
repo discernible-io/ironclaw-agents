@@ -181,6 +181,10 @@ fn reborn_runtime_image_includes_sql_debug_clients() {
         dockerfile.contains("sqlite3"),
         "runtime image must include sqlite3 for volume-backed libSQL/SQLite inspection"
     );
+    assert!(
+        dockerfile.contains("himalaya") && dockerfile.contains("HIMALAYA_VERSION"),
+        "runtime image must ship the Himalaya IMAP/SMTP CLI (runtime-stage only; no rust rebuild)"
+    );
 }
 
 #[test]

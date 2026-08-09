@@ -126,6 +126,9 @@ RUN --mount=type=cache,id=ironclaw-reborn-cargo-registry,target=/usr/local/cargo
 
 FROM debian:bookworm-slim AS runtime
 
+# Runtime OS packages only. Changing this stage (or adding a binary here) does
+# *not* invalidate the cargo-chef / cook / rust build stages above when using
+# `podman build --layers` — those stay cache hits.
 RUN apt-get -o Acquire::Retries=3 update \
     && apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
         ca-certificates \
@@ -133,6 +136,15 @@ RUN apt-get -o Acquire::Retries=3 update \
         postgresql-client \
         sqlite3 \
     && rm -rf /var/lib/apt/lists/*
+
+# Himalaya IMAP/SMTP CLI — pin release; override with --build-arg if needed.
+ARG HIMALAYA_VERSION=1.2.0
+ARG HIMALAYA_TARGET=x86_64-linux
+RUN curl -fsSL \
+      "https://github.com/pimalaya/himalaya/releases/download/v${HIMALAYA_VERSION}/himalaya.${HIMALAYA_TARGET}.tgz" \
+    | tar -xz -C /usr/local/bin himalaya \
+    && chmod 755 /usr/local/bin/himalaya \
+    && himalaya --version
 
 COPY --from=builder /out/ironclaw-reborn /usr/local/bin/ironclaw-reborn
 COPY --from=builder /out/ironclaw-reborn-extension-ownership-migration /usr/local/bin/ironclaw-reborn-extension-ownership-migration
