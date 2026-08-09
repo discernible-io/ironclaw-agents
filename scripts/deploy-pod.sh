@@ -54,6 +54,7 @@ fi
 
 ironclaw_ensure_app_layout
 ironclaw_prepare_data_dir
+ironclaw_prepare_identyclaw_dirs
 ironclaw_normalize_tls_certs
 
 if [[ "${SKIP_PULL:-0}" != 1 ]]; then
@@ -113,8 +114,7 @@ if want_identyclaw_helper; then
   else
     cred_file=""
     cred_file="$(ironclaw_resolve_near_credentials 2>/dev/null || true)"
-    mkdir -p "$(ironclaw_identyclaw_session_dir)"
-    chmod 700 "$(ironclaw_near_credentials_dir)" "$(ironclaw_identyclaw_session_dir)" 2>/dev/null || true
+    ironclaw_prepare_identyclaw_dirs
     helper_env=(
       -e "IDENTYCLAW_HELPER_HOST=${IDENTYCLAW_HELPER_HOST:-127.0.0.1}"
       -e "IDENTYCLAW_HELPER_PORT=${IDENTYCLAW_HELPER_PORT:-3921}"
@@ -130,10 +130,13 @@ if want_identyclaw_helper; then
       helper_env+=(-e "NEAR_CREDENTIALS_FILE_PATH=/secrets/near-credentials/$(basename "$cred_file")")
     fi
     echo "==> Starting IdentyClaw helper (${IDENTYCLAW_CONTAINER_NAME})"
+    # --user 0:0: rootless host uid maps to container root; USER node cannot
+    # read host-owned near-credentials / sessions (EACCES).
     podman run -d \
       --log-driver=k8s-file \
       --pod "$POD_NAME" \
       --name "$IDENTYCLAW_CONTAINER_NAME" \
+      --user 0:0 \
       --restart=unless-stopped \
       "${helper_env[@]}" \
       -v "$(ironclaw_near_credentials_dir):/secrets/near-credentials:ro${z}" \

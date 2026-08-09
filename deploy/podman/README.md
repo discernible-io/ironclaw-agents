@@ -10,8 +10,8 @@ live in a sibling app directory — never in git.
 |------|------|
 | `ironclaw-idc/` (this repo) | Code, `Dockerfile.reborn`, nginx, `./ironclaw.sh` |
 | `../ironclaw-app/secrets/secrets.env` | Runtime secrets (`chmod 600`) |
-| `../ironclaw-app/secrets/near-credentials/` | IdentyClaw Passport NEAR JSON (`chmod 700`) |
-| `../ironclaw-app/data/identyclaw/sessions/` | Host-cached JWTs (helper only) |
+| `../ironclaw-app/secrets/near-credentials/` | IdentyClaw Passport NEAR JSON (`chmod 700`, host-user owned) |
+| `../ironclaw-app/data/identyclaw/sessions/` | Host-cached JWTs (helper + host `idcp`; keep host-user owned) |
 | `../ironclaw-app/certs/` | TLS PEMs for nginx |
 | `../ironclaw-app/data/ironclaw-reborn/` | Durable Reborn home (volume mount) |
 | `../ironclaw-app/logs/` | Container / nginx logs |
@@ -125,8 +125,11 @@ plus Hermes-shaped `idcp` CLI on the agent PATH. Passport NEAR credentials +
 ./ironclaw.sh idcp create_hola --recipient MUNDO
 ```
 
-Agent calls (same pod): `idcp …` via **shell**. Bundled skill: `skills/identyclaw`.
-(`identyclaw` remains an alias of `idcp`.)
+Agent calls (same pod): `idcp …` via **shell** when `builtin.shell` is visible.
+Bundled skill: `skills/identyclaw`. (`identyclaw` remains an alias of `idcp`.)
+
+On `hosted-single-tenant-volume`, shell is disabled (`process_backend=none`), so the
+model cannot run `idcp` yet — see `deploy/identyclaw/README.md` (processless path).
 
 ## Secrets checklist
 

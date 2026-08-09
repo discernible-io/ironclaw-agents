@@ -15,6 +15,8 @@
 #   logs [reborn|nginx|identyclaw]  Follow container logs (default: reborn)
 #   token                Print IRONCLAW_REBORN_WEBUI_TOKEN from secrets.env
 #   chat | url           Print WebUI HTTPS URL + token (browser chat; not Identyclaw TUI)
+#   env                  Print rebuild-safe app-dir env summary (no secret values)
+#   exec <cmd…>          Run a host command with secrets.env loaded + host Reborn home
 #   idcp-init | identyclaw-init   Layout near-credentials + install helper npm deps
 #   idcp <cmd> | identyclaw <cmd> Host CLI: enroll|ensure_session|me|create_hola|…
 #   create-github-fork   Create discernible-io/ironclaw-idc fork via gh (once)
@@ -26,7 +28,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$ROOT/scripts/lib-podman.sh"
 
 usage() {
-  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -314,6 +316,63 @@ Print token only: ./ironclaw.sh token
 EOF
 }
 
+# Host-side Reborn home (volume on disk). secrets.env uses the in-container path
+# (/data/ironclaw-reborn); override when running cargo/CLI on the host.
+ironclaw_host_reborn_home() {
+  printf '%s' "$(ironclaw_app_dir)/data/ironclaw-reborn"
+}
+
+cmd_env() {
+  local app_dir secrets home
+  app_dir="$(ironclaw_app_dir)"
+  secrets="${app_dir}/secrets/secrets.env"
+  home="$(ironclaw_host_reborn_home)"
+  [[ -f "$secrets" ]] || {
+    echo "Missing $secrets — run ./ironclaw.sh init first" >&2
+    exit 1
+  }
+  ironclaw_load_secrets
+  cat <<EOF
+Rebuild-safe IronClaw app env (lives outside the image / git checkout)
+
+  APP_DIR:              ${app_dir}
+  secrets:              ${secrets}
+  host IRONCLAW_REBORN_HOME: ${home}
+  container home:       /data/ironclaw-reborn  (pod volume mount)
+  profile:              ${IRONCLAW_REBORN_PROFILE:-unset}
+  OPENROUTER_API_KEY:   $([[ -n "${OPENROUTER_API_KEY:-}" ]] && echo "set (len=${#OPENROUTER_API_KEY})" || echo "missing")
+  OPENROUTER_MODEL:     ${OPENROUTER_MODEL:-unset (config.toml model used)}
+  config.toml provider: $(grep -E '^provider_id\s*=' "${home}/config.toml" 2>/dev/null | head -1 || echo missing)
+  config.toml model:    $(grep -E '^model\s*=' "${home}/config.toml" 2>/dev/null | head -1 || echo missing)
+
+Host CLI (survives rebuild — loads secrets.env, points at app data):
+  ./ironclaw.sh exec -- cargo run -q -p ironclaw_reborn_cli --bin ironclaw-reborn -- repl
+EOF
+}
+
+cmd_exec() {
+  local home
+  [[ -f "$(ironclaw_app_dir)/secrets/secrets.env" ]] || {
+    echo "Missing secrets — run ./ironclaw.sh init first" >&2
+    exit 1
+  }
+  if [[ $# -eq 0 || "$1" == "-h" || "$1" == "--help" ]]; then
+    echo "Usage: $0 exec [--] <command> [args…]" >&2
+    echo "Loads ../ironclaw-app/secrets/secrets.env and sets host IRONCLAW_REBORN_HOME." >&2
+    exit 1
+  fi
+  [[ "$1" == "--" ]] && shift
+  [[ $# -gt 0 ]] || {
+    echo "Usage: $0 exec [--] <command> [args…]" >&2
+    exit 1
+  }
+  ironclaw_load_secrets
+  home="$(ironclaw_host_reborn_home)"
+  export IRONCLAW_REBORN_HOME="$home"
+  export IRONCLAW_APP_DIR="$(ironclaw_app_dir)"
+  exec "$@"
+}
+
 cmd_create_github_fork() {
   if ! command -v gh >/dev/null 2>&1; then
     echo "gh CLI required" >&2
@@ -356,6 +415,8 @@ main() {
     logs) cmd_logs "$@" ;;
     token) cmd_token "$@" ;;
     chat|url) cmd_chat "$@" ;;
+    env) cmd_env "$@" ;;
+    exec) cmd_exec "$@" ;;
     idcp-init|identyclaw-init) cmd_identyclaw_init "$@" ;;
     idcp|identyclaw) cmd_identyclaw "$@" ;;
     create-github-fork) cmd_create_github_fork "$@" ;;
