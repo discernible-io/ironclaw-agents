@@ -7,11 +7,13 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import nacl from "tweetnacl";
-import bs58 from "bs58";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const require = createRequire(pathToFileURL(path.join(ROOT, "package.json")));
+const { nearPrivateKeyToSigningSecretKey } = require(
+  path.join(ROOT, "vendor", "hola-client", "lib", "near-key.js")
+);
 
 // Quiet @rodit/rodit-auth-be import-time logging before first require.
 process.env.LOG_LEVEL = process.env.LOG_LEVEL || "error";
@@ -20,6 +22,13 @@ process.env.SUPPRESS_STRICTNESS_CHECK = process.env.SUPPRESS_STRICTNESS_CHECK ||
 
 const ONE_MINUTE_MS = 60_000;
 const DEFAULT_BASE = "https://api.identyclaw.com";
+
+/** OpenClaw parity: tell the model federated login ≠ home IdentyClaw surface. */
+export const FEDERATED_SESSION_NOTE =
+  "Federated session ready. Peers share Rodit login only — they do not need the same " +
+  "endpoints as api.identyclaw.com. Do not call home tools (me / /api/me/identity / HOLA / " +
+  "agents) against this host. Login is complete when ok=true; stop unless the user named a " +
+  "specific product path. Then use request with the same base. Keep Passport/HOLA/DID on home.";
 
 /** @type {Map<string, { token: string, expiresAtMs: number, federated: boolean, tokenId?: string }>} */
 const memorySessions = new Map();
@@ -100,9 +109,9 @@ function base64Url(bytes) {
   return Buffer.from(bytes).toString("base64url");
 }
 
-function secretKeyFromNearPrivateKey(nearPrivateKey) {
-  const keyBody = nearPrivateKey.replace(/^ed25519:/, "").trim();
-  return bs58.decode(keyBody).slice(0, 32);
+/** NEAR `ed25519:...` → 64-byte tweetnacl signing secret (same as openclaw-identyclaw-plugin). */
+export function secretKeyFromNearPrivateKey(nearPrivateKey) {
+  return nearPrivateKeyToSigningSecretKey(nearPrivateKey);
 }
 
 function sessionDir() {
@@ -274,15 +283,17 @@ export async function ensureSession({
   const target = normalizeApiUrl(apiEndpoint || homeBase);
   const cached = loadCachedSession(target);
   if (cached) {
+    const federated = cached.federated || target !== homeBase;
     return {
       ok: true,
       apiEndpoint: target,
-      federated: cached.federated || target !== homeBase,
+      federated,
       tokenId: cached.tokenId || null,
       jwt_length: cached.token.length,
       expiresAtMs: cached.expiresAtMs,
       cached: true,
       via: "cache",
+      ...(federated ? { note: FEDERATED_SESSION_NOTE } : {}),
     };
   }
 
@@ -340,6 +351,7 @@ export async function ensureSession({
     expiresAtMs: entry.expiresAtMs,
     cached: false,
     via: login.via || "wire",
+    ...(federated ? { note: FEDERATED_SESSION_NOTE } : {}),
   };
 }
 

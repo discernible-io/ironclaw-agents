@@ -83,10 +83,11 @@ ironclaw_selinux_mount_suffix() {
 ironclaw_ensure_app_layout() {
   local app_dir
   app_dir="$(ironclaw_app_dir)"
-  mkdir -p "${app_dir}/"{certs,logs/nginx,data/ironclaw-reborn,data/identyclaw/sessions,nginx,secrets,secrets/near-credentials}
+  mkdir -p "${app_dir}/"{certs,logs/nginx,data/ironclaw-reborn,data/identyclaw/sessions,nginx,secrets,secrets/near-credentials,secrets/himalaya,config/himalaya}
   chmod 711 "${app_dir}/certs" 2>/dev/null || true
   chmod 750 "${app_dir}/secrets" 2>/dev/null || true
   chmod 700 "${app_dir}/secrets/near-credentials" 2>/dev/null || true
+  chmod 700 "${app_dir}/secrets/himalaya" 2>/dev/null || true
   chmod 700 "${app_dir}/data/identyclaw" 2>/dev/null || true
   chmod 700 "${app_dir}/data/identyclaw/sessions" 2>/dev/null || true
   chmod 0775 "${app_dir}/logs/nginx" 2>/dev/null || true

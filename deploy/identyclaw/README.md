@@ -39,38 +39,30 @@ idcp verify_hola --hola 'HOLA/…'
 idcp request GET /api/agents
 ```
 
-Requires `builtin.shell`. The default deploy profile
-(`hosted-single-tenant-volume`) sets `process_backend=none`, so shell — and
-therefore `idcp` — is not model-visible until a mediated capability exists.
+Requires `builtin.shell`. Prefer **`builtin.idcp`** on processless profiles
+(`hosted-single-tenant-volume`).
 
-## Processless path (sketch)
+## Processless path (`builtin.idcp`)
 
-Goal: Passport / HOLA / authenticated API without exposing `builtin.shell` or
-JWTs/keys to the model.
+Reborn exposes **`builtin.idcp`**: a first-party capability that calls the
+loopback helper (`IDENTYCLAW_HELPER_BASE`, default `http://127.0.0.1:3921`)
+without `builtin.shell`. Effects are `DispatchCapability` only, so it stays
+visible under `hosted-single-tenant-volume` (`process_backend=none`).
 
 ```text
 WebUI / agent turn
-  → CapabilityHost invoke(builtin.idcp | extension.idcp)
-  → host-runtime handler (no ProcessBackend)
-  → HTTP to IDENTYCLAW_HELPER_BASE (loopback 127.0.0.1:3921)
+  → CapabilityHost invoke(builtin.idcp)
+  → host-runtime idcp handler
+  → HTTP to IDENTYCLAW_HELPER_BASE (loopback only)
   → helper (NEAR key + JWT on disk) → api.identyclaw.com
-  → redacted JSON back to model (never Authorization / private key)
+  → redacted JSON back to model (never Authorization / private key / JWT)
 ```
-
-Suggested shape:
 
 | Piece | Choice |
 |-------|--------|
-| Capability id | `builtin.idcp` (first-party) or installable extension |
-| Ops | Mirror helper verbs: `ensure_session`, `me`, `request`, `create_hola`, `verify_hola`, `agents`, `info` |
-| Effects | `Network` (+ maybe `DispatchCapability`); **not** `ExecuteProcess` |
-| Policy | Allow when helper is configured; fail closed if `IDENTYCLAW_HELPER_BASE` unreachable |
-| Profile | Visible under `hosted-single-tenant-volume` (processless) |
-| Redaction | Strip JWT / `Authorization` / key material from model-visible output (same contract as `idcp` CLI) |
-| Skill | Teach `builtin.idcp` first; keep CLI for operators and shell-enabled profiles |
-
-Out of scope for v1 of that capability: enroll (stays host `./ironclaw.sh idcp enroll`).
-
-Interim operator workaround while processless capability is unbuilt: run
-`./ironclaw.sh idcp me` / `create_hola` on the host and paste non-secret results
-into chat, or temporarily use a shell-enabled profile (`local-dev` / yolo).
+| Capability id | `builtin.idcp` |
+| Ops | `ensure_session`, `me`, `request`, `create_hola`, `verify_hola`, `agents`, `info`, `list_sessions` |
+| Effects | `DispatchCapability` only |
+| Helper base | Host env; must be `http://127.0.0.1` / `localhost` / `::1` |
+| Redaction | JWT-shaped strings + sensitive key names stripped |
+| Enroll | Host-only: `./ironclaw.sh idcp enroll` |

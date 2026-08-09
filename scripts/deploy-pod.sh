@@ -77,6 +77,18 @@ chmod 755 "${APP_DIR}/logs" || true
 # Mount idcp CLI for agent shell (Hermes-shaped surface → private helper sidecar).
 IDCP_SRC="${REPO_ROOT}/deploy/identyclaw"
 DEFAULT_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+REBORN_VOLUMES=(
+  -v "${APP_DIR}/data/ironclaw-reborn:/data/ironclaw-reborn:rw${z}"
+  -v "${APP_DIR}/logs:/workspace/logs:rw${z}"
+  -v "${IDCP_SRC}:/opt/idcp:ro${z}"
+)
+# Optional Migadu/Himalaya mail config from ironclaw-app (password via auth.cmd).
+if [[ -f "${APP_DIR}/config/himalaya/config.container.toml" && -x "${APP_DIR}/secrets/himalaya/print-password.sh" ]]; then
+  REBORN_VOLUMES+=(
+    -v "${APP_DIR}/config/himalaya/config.container.toml:/home/ironclaw/.config/himalaya/config.toml:ro${z}"
+    -v "${APP_DIR}/secrets/himalaya:/secrets/himalaya:ro${z}"
+  )
+fi
 podman run -d \
   --log-driver=k8s-file \
   --pod "$POD_NAME" \
@@ -88,9 +100,8 @@ podman run -d \
   -e "IRONCLAW_REBORN_SERVE_PORT=3000" \
   -e "IDENTYCLAW_HELPER_BASE=${IDENTYCLAW_HELPER_BASE:-http://127.0.0.1:3921}" \
   -e "PATH=/opt/idcp/bin:${DEFAULT_PATH}" \
-  -v "${APP_DIR}/data/ironclaw-reborn:/data/ironclaw-reborn:rw${z}" \
-  -v "${APP_DIR}/logs:/workspace/logs:rw${z}" \
-  -v "${IDCP_SRC}:/opt/idcp:ro${z}" \
+  -e "XDG_CONFIG_HOME=/home/ironclaw/.config" \
+  "${REBORN_VOLUMES[@]}" \
   "$REBORN_IMAGE"
 
 podman container exists "$APP_CONTAINER_NAME"
