@@ -79,8 +79,8 @@ WebUI: open the HTTPS URL and authenticate with the bearer token from
 | `./ironclaw.sh status` | Podman + health probe |
 | `./ironclaw.sh logs [reborn\|nginx]` | Follow logs |
 | `./ironclaw.sh token` | Print WebUI token |
-| `./ironclaw.sh identyclaw-init` | NEAR creds layout + host helper npm deps |
-| `./ironclaw.sh identyclaw …` | ensure-session / me / create-hola / verify-hola / … |
+| `./ironclaw.sh idcp-init` | NEAR creds layout + host helper npm deps |
+| `./ironclaw.sh idcp …` | enroll / ensure_session / me / create_hola / verify_hola / … |
 | `./ironclaw.sh create-github-fork` | Create `discernible-io/ironclaw-idc` via `gh` |
 
 Lower-level: `./scripts/deploy-local-podman.sh`, `./scripts/deploy-pod.sh`.
@@ -110,22 +110,23 @@ unless deliberately upstreaming a thin slice.
 HTTPS + a stable public URL are prerequisites for agent-to-agent traffic. Full
 OpenClaw A2A (`identyclaw-a2a` / `POST /a2a`) is **not** mounted yet.
 
-**IdentyClaw API + HOLA (phase 1, shipped here):** host helper sidecar using
-Passport NEAR credentials + `@rodit/rodit-auth-be` (when available) / wire login,
-matching IdentyClaw `doc:skills` IronClaw path:
+**IdentyClaw API + HOLA (phase 1, shipped here):** host helper sidecar (private)
+plus Hermes-shaped `idcp` CLI on the agent PATH. Passport NEAR credentials +
+`@rodit/rodit-auth-be` (when available) / wire login, matching IdentyClaw
+`doc:skills` IronClaw path:
 
 ```bash
-./ironclaw.sh identyclaw-init
-# Drop gennearaccount JSON into ../ironclaw-app/secrets/near-credentials/
+./ironclaw.sh idcp-init
+./ironclaw.sh idcp enroll
 # Mint Passport at https://purchase.identyclaw.com
 ./ironclaw.sh build-image && ./ironclaw.sh start   # starts helper when creds exist
-./ironclaw.sh identyclaw ensure-session
-./ironclaw.sh identyclaw me
-./ironclaw.sh identyclaw create-hola --recipient MUNDO
+./ironclaw.sh idcp ensure_session
+./ironclaw.sh idcp me
+./ironclaw.sh idcp create_hola --recipient MUNDO
 ```
 
-Agent calls (same pod): `curl http://127.0.0.1:3921/v1/...` via **shell** (mediated
-`http` tool blocks loopback). Bundled skill: `skills/identyclaw`.
+Agent calls (same pod): `idcp …` via **shell**. Bundled skill: `skills/identyclaw`.
+(`identyclaw` remains an alias of `idcp`.)
 
 ## Secrets checklist
 

@@ -15,8 +15,8 @@
 #   logs [reborn|nginx|identyclaw]  Follow container logs (default: reborn)
 #   token                Print IRONCLAW_REBORN_WEBUI_TOKEN from secrets.env
 #   chat | url           Print WebUI HTTPS URL + token (browser chat; not Identyclaw TUI)
-#   identyclaw-init      Layout near-credentials + install helper npm deps on host
-#   identyclaw <cmd>     Host CLI: ensure-session|me|create-hola|verify-hola|...
+#   idcp-init | identyclaw-init   Layout near-credentials + install helper npm deps
+#   idcp <cmd> | identyclaw <cmd> Host CLI: enroll|ensure_session|me|create_hola|…
 #   create-github-fork   Create discernible-io/ironclaw-idc fork via gh (once)
 
 set -euo pipefail
@@ -26,7 +26,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$ROOT/scripts/lib-podman.sh"
 
 usage() {
-  sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -130,7 +130,8 @@ cmd_identyclaw_init() {
   echo "==> App dir: $app_dir"
   echo "==> NEAR credentials dir: $cred_dir (chmod 700)"
   if ! ironclaw_resolve_near_credentials >/dev/null 2>&1; then
-    echo "Place a gennearaccount JSON in ${cred_dir}/ then mint at https://purchase.identyclaw.com"
+    echo "No credentials yet — run: ./ironclaw.sh idcp enroll"
+    echo "Then mint Passport at https://purchase.identyclaw.com with account_id"
     echo "Optional: echo '<accountid>.json' > ${cred_dir}/.active"
   else
     echo "Found credentials: $(ironclaw_resolve_near_credentials)"
@@ -156,21 +157,21 @@ cmd_identyclaw_init() {
     echo "npm not found on host — helper still builds via ./ironclaw.sh build-image"
   fi
   if [[ -f "${app_dir}/secrets/secrets.env" ]]; then
-    if ! grep -q '^IDENTYCLAW_HELPER_BASE=' "${app_dir}/secrets/secrets.env" 2>/dev/null; then
+    if ! grep -q '^IDENTYCLAW_BASE_URL=' "${app_dir}/secrets/secrets.env" 2>/dev/null; then
       {
         echo ""
-        echo "# IdentyClaw host helper (loopback sidecar)"
+        echo "# IdentyClaw Passport (host helper sidecar is private; agents use idcp)"
         echo "IDENTYCLAW_BASE_URL=https://api.identyclaw.com"
-        echo "IDENTYCLAW_HELPER_BASE=http://127.0.0.1:3921"
         echo "IDENTYCLAW_NEAR_CONTRACT_ID=genaaaa-identyclaw-com.near"
         echo "NEAR_CONTRACT_ID=genaaaa-identyclaw-com.near"
       } >>"${app_dir}/secrets/secrets.env"
       echo "Appended IDENTYCLAW_* defaults to secrets.env"
     fi
   fi
-  echo "Next: mint Passport if needed, then ./ironclaw.sh build-image && ./ironclaw.sh start"
-  echo "Then: ./ironclaw.sh identyclaw ensure-session && ./ironclaw.sh identyclaw me"
-  echo "Agent skill: skills/identyclaw (bundled after reborn image rebuild)"
+  echo "Next: ./ironclaw.sh idcp enroll   # if needed"
+  echo "      mint Passport, then ./ironclaw.sh build-image && ./ironclaw.sh start"
+  echo "      ./ironclaw.sh idcp ensure_session && ./ironclaw.sh idcp me"
+  echo "Agent skill: skills/identyclaw (idcp on PATH after start)"
 }
 
 cmd_identyclaw() {
@@ -346,8 +347,8 @@ main() {
     logs) cmd_logs "$@" ;;
     token) cmd_token "$@" ;;
     chat|url) cmd_chat "$@" ;;
-    identyclaw-init) cmd_identyclaw_init "$@" ;;
-    identyclaw) cmd_identyclaw "$@" ;;
+    idcp-init|identyclaw-init) cmd_identyclaw_init "$@" ;;
+    idcp|identyclaw) cmd_identyclaw "$@" ;;
     create-github-fork) cmd_create_github_fork "$@" ;;
     -h|--help|help|"") usage 0 ;;
     *)

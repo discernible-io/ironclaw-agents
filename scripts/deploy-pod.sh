@@ -73,6 +73,9 @@ chmod 755 "${APP_DIR}/logs" || true
 
 # Drop deploy-only keys that are not needed inside the Reborn process.
 # Podman --env-file still injects IRONCLAW_* serve vars from secrets.env.
+# Mount idcp CLI for agent shell (Hermes-shaped surface → private helper sidecar).
+IDCP_SRC="${REPO_ROOT}/deploy/identyclaw"
+DEFAULT_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 podman run -d \
   --log-driver=k8s-file \
   --pod "$POD_NAME" \
@@ -83,8 +86,10 @@ podman run -d \
   -e "IRONCLAW_REBORN_SERVE_HOST=127.0.0.1" \
   -e "IRONCLAW_REBORN_SERVE_PORT=3000" \
   -e "IDENTYCLAW_HELPER_BASE=${IDENTYCLAW_HELPER_BASE:-http://127.0.0.1:3921}" \
+  -e "PATH=/opt/idcp/bin:${DEFAULT_PATH}" \
   -v "${APP_DIR}/data/ironclaw-reborn:/data/ironclaw-reborn:rw${z}" \
   -v "${APP_DIR}/logs:/workspace/logs:rw${z}" \
+  -v "${IDCP_SRC}:/opt/idcp:ro${z}" \
   "$REBORN_IMAGE"
 
 podman container exists "$APP_CONTAINER_NAME"
