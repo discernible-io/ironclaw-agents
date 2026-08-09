@@ -20,6 +20,9 @@ ENV IDENTYCLAW_HELPER_HOST=127.0.0.1 \
     SUPPRESS_NO_CONFIG_WARNING=true \
     SUPPRESS_STRICTNESS_CHECK=true
 
-USER node
+# Run as container root. Under rootless Podman the host uid maps to container
+# uid 0, so host-owned secrets/near-credentials and sessions stay readable/
+# writable. USER node (1000) maps to a subordinate host uid and gets EACCES on
+# those mounts. Loopback-only bind; deploy-pod also passes --user 0:0.
 EXPOSE 3921
 CMD ["node", "src/server.mjs"]

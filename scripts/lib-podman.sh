@@ -156,3 +156,17 @@ ironclaw_prepare_data_dir() {
   podman unshare chown -R 1000:1000 "$data_dir" 2>/dev/null || true
   chmod 755 "$data_dir" 2>/dev/null || true
 }
+
+# IdentyClaw helper mounts (Passport JSON + cached JWTs).
+# Keep host-user ownership + mode 700. Do not podman-unshare-chown to 1000:
+# under rootless Podman that maps to a subordinate uid and breaks host
+# `./ironclaw.sh idcp`. The helper container must run as uid 0 so it can
+# read/write these host-owned paths (host uid ↔ container root).
+ironclaw_prepare_identyclaw_dirs() {
+  local cred_dir session_dir session_parent
+  cred_dir="$(ironclaw_near_credentials_dir)"
+  session_dir="$(ironclaw_identyclaw_session_dir)"
+  session_parent="$(dirname "$session_dir")"
+  mkdir -p "$cred_dir" "$session_dir"
+  chmod 700 "$cred_dir" "$session_dir" "$session_parent" 2>/dev/null || true
+}

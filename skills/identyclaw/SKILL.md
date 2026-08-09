@@ -1,6 +1,6 @@
 ---
 name: identyclaw
-version: "0.2.0"
+version: "0.2.1"
 description: IdentyClaw Passport API sessions, federated login, HOLA peer handshake verify/create, and identity lookup for IronClaw deployments
 activation:
   keywords:
@@ -33,7 +33,16 @@ activation:
 **Base URL:** `https://api.identyclaw.com`  
 **Docs MCP:** `https://api.identyclaw.com/mcp` (`doc:skills`, `doc:reference:ironclaw-integration-guide`)
 
-IronClaw uses the **host login** path (not OpenClaw plugins). Call the `idcp` CLI — do not hand-roll Ed25519 login in prompts, invent signatures, or paste JWTs/private keys.
+IronClaw uses the **host login** path (not OpenClaw plugins). There is **no** Reborn
+capability named `idcp`. When `builtin.shell` is available, call the `idcp` CLI —
+do not hand-roll Ed25519 login in prompts, invent signatures, or paste JWTs/private keys.
+
+**Processless profiles** (`hosted-single-tenant-volume`): `builtin.shell` is not
+exposed (`process_backend=none`). Do **not** pretend to have `idcp` or forge
+authenticated IdentyClaw calls via `builtin.http`. Public endpoints only
+(`GET /api/agents`, `POST /api/identity/verify`). For Passport identity / HOLA /
+authenticated `request`, tell the operator to run `./ironclaw.sh idcp me` (or
+enable a future mediated `builtin.idcp` capability).
 
 ## Layout (this host)
 
@@ -45,17 +54,18 @@ IronClaw uses the **host login** path (not OpenClaw plugins). Call the `idcp` CL
 | `skills/identyclaw/` | This skill |
 
 Inside the Reborn container, `idcp` is on `PATH` when the pod was started with the deploy kit.
+Shell must be enabled for the model to invoke it.
 
 ## Agent-facing ops (`idcp`)
 
 | Op | Command | Returns |
 |----|---------|---------|
 | ensure_session | `idcp ensure_session [--base URL]` | metadata only (`ok`, `tokenId`, `jwt_length`) — **never** full JWT |
-| list_sessions | `idcp list_sessions` | cached hosts; no JWTs |
 | me | `idcp me` | Passport identity |
 | request | `idcp request METHOD /api/path [--body JSON]` | host injects Bearer |
 | create_hola | `idcp create_hola [--recipient MUNDO\|peerTokenId]` | HOLA string |
 | verify_hola | `idcp verify_hola --hola '…' [--expected MUNDO]` | verify JSON |
+| list_sessions | `idcp list_sessions` | cached hosts; no JWTs |
 
 ## Rules
 
