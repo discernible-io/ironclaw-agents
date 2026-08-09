@@ -1,7 +1,7 @@
 ---
 name: identyclaw
-version: "0.1.0"
-description: IdentyClaw Passport API sessions, federated login, HOLA peer handshake verify/create, and identity lookup for IronClaw host-sidecar deployments
+version: "0.2.0"
+description: IdentyClaw Passport API sessions, federated login, HOLA peer handshake verify/create, and identity lookup for IronClaw deployments
 activation:
   keywords:
     - "identyclaw"
@@ -11,11 +11,13 @@ activation:
     - "peer agent"
     - "verify hola"
     - "api.identyclaw.com"
+    - "idcp"
   exclude_keywords:
     - "openclaw plugin install"
   patterns:
     - "(?i)\\bhola\\b"
     - "(?i)identyclaw"
+    - "(?i)\\bidcp\\b"
     - "(?i)did:rodit:"
     - "(?i)passport\\s+id"
     - "(?i)verify.*(peer|agent|hola)"
@@ -23,90 +25,64 @@ activation:
     - "identity"
     - "auth"
     - "interop"
-  max_context_tokens: 2200
+  max_context_tokens: 1800
 ---
 
-# IdentyClaw on IronClaw (host helper)
+# IdentyClaw (IronClaw)
 
-You run on **IronClaw**, not OpenClaw. Do **not** invent Ed25519 signatures, paste private keys, or treat redacted `eyJ…` fragments as JWTs. Do **not** curl `POST /api/login` from chat.
+**Base URL:** `https://api.identyclaw.com`  
+**Docs MCP:** `https://api.identyclaw.com/mcp` (`doc:skills`, `doc:reference:ironclaw-integration-guide`)
 
-**Home API:** `https://api.identyclaw.com`  
-**Host helper (same pod, loopback):** `http://127.0.0.1:3921`  
-Override with env `IDENTYCLAW_HELPER_BASE` when set.
+IronClaw uses the **host login** path (not OpenClaw plugins). Call the `idcp` CLI — do not hand-roll Ed25519 login in prompts, invent signatures, or paste JWTs/private keys.
 
-## Two lanes
+## Layout (this host)
 
-| Lane | Artifact | How on IronClaw |
-|------|----------|-----------------|
-| API login | Host-cached JWT (~1h) | Helper `ensure_session` / `request` |
-| HOLA | Wire string (~5 min nonce) | Helper `create_hola` / `verify_hola` |
+| Path | Role |
+|------|------|
+| `deploy/identyclaw/` (repo) | Helper + `idcp` on agent PATH at `/opt/idcp` |
+| `ironclaw-app/secrets/near-credentials/*.json` | NEAR Passport key |
+| `ironclaw-app/data/identyclaw/sessions/` | Cached JWT per API host (host-only) |
+| `skills/identyclaw/` | This skill |
 
-A JWT is **not** a HOLA line. `POST /api/identity/verify` is **public**.
+Inside the Reborn container, `idcp` is on `PATH` when the pod was started with the deploy kit.
 
-## Call the host helper (preferred for protected ops)
+## Agent-facing ops (`idcp`)
 
-Mediated `http` egress **blocks loopback**. Use the **shell** tool (or ask the operator to run `./ironclaw.sh identyclaw …`):
+| Op | Command | Returns |
+|----|---------|---------|
+| ensure_session | `idcp ensure_session [--base URL]` | metadata only (`ok`, `tokenId`, `jwt_length`) — **never** full JWT |
+| list_sessions | `idcp list_sessions` | cached hosts; no JWTs |
+| me | `idcp me` | Passport identity |
+| request | `idcp request METHOD /api/path [--body JSON]` | host injects Bearer |
+| create_hola | `idcp create_hola [--recipient MUNDO\|peerTokenId]` | HOLA string |
+| verify_hola | `idcp verify_hola --hola '…' [--expected MUNDO]` | verify JSON |
+
+## Rules
+
+- Prefer `idcp` over inventing signatures or pasting JWTs into chat.
+- One JWT **per API host** (home vs federated): `idcp ensure_session --base https://peer…`
+- After inbound `verify_hola` → `verified: true`, immediately `create_hola` and reply on the **same channel**.
+- Verify before execute on delegated work.
+- Public (no credentials): `POST /api/identity/verify` and `GET /api/agents` via `idcp request` or normal egress HTTP.
+- A JWT is **not** a HOLA line. Ongoing messaging uses HOLA — not OpenClaw A2A (`/a2a` is not mounted).
+
+## Enrollment (operator, once)
 
 ```bash
-HELPER="${IDENTYCLAW_HELPER_BASE:-http://127.0.0.1:3921}"
-
-# 1. API session (home or federated)
-curl -sS -X POST "$HELPER/v1/ensure_session" \
-  -H 'content-type: application/json' \
-  -d '{}'
-curl -sS -X POST "$HELPER/v1/ensure_session" \
-  -H 'content-type: application/json' \
-  -d '{"apiEndpoint":"https://api-b.example.com"}'
-
-# 2. List sessions (metadata only — no JWTs)
-curl -sS "$HELPER/v1/sessions"
-
-# 3. Own identity
-curl -sS "$HELPER/v1/me"
-
-# 4. Generic authenticated request
-curl -sS -X POST "$HELPER/v1/request" \
-  -H 'content-type: application/json' \
-  -d '{"method":"GET","path":"/api/identity/token/PEERTOKEN/full"}'
-
-# 5. Create outbound HOLA (signer = this Passport; only recipient may be user-supplied)
-curl -sS -X POST "$HELPER/v1/create_hola" \
-  -H 'content-type: application/json' \
-  -d '{"recipient":"MUNDO"}'
-
-# 6. Verify peer HOLA
-curl -sS -X POST "$HELPER/v1/verify_hola" \
-  -H 'content-type: application/json' \
-  -d '{"hola":"HOLA/MUNDO/...","expectedRecipient":"MUNDO"}'
+./ironclaw.sh idcp-init
+./ironclaw.sh idcp enroll
+# Human: https://purchase.identyclaw.com with account_id
+./ironclaw.sh idcp ensure_session
+./ironclaw.sh idcp me
+./ironclaw.sh start   # recreates pod with helper + idcp on PATH
 ```
 
-Helper responses never include `jwt_token` or `nearPrivateKey`.
+## Day-to-day (in chat / shell)
 
-## Public ops without the helper
-
-Safe via the normal `http` tool (no credentials):
-
-```text
-POST https://api.identyclaw.com/api/identity/verify
-  body: {"hola":"<line>","expectedRecipient":"MUNDO"}
-
-GET https://api.identyclaw.com/api/agents?limit=20
+```bash
+idcp ensure_session
+idcp verify_hola --hola 'HOLA/…'
+idcp create_hola --recipient MUNDO
+idcp request GET /api/agents
+idcp request GET /api/identity/token/<peerTokenId>/full
 ```
-
-Trust peers only when `verified: true`. Then immediately create/send **your** HOLA on the same channel (`create_hola` with `recipient` = peer `peerTokenId` or `MUNDO`).
-
-## First contact
-
-1. Verify inbound HOLA (`verified: true`).
-2. `ensure_session` + `create_hola` reply — do not wait for the user.
-3. Lookup `GET …/token/{peerTokenId}/full` via helper `request`.
-4. Impersonation guard: compare `peerTokenId` to IDs published on channels the entity controls.
-5. Ongoing messaging: HOLA + collaboration envelope on this channel — **not** OpenClaw A2A (`/a2a` is not mounted on this deploy).
-
-## Federation
-
-Remint a JWT on the target host (`ensure_session` with `apiEndpoint`). Do not reuse a home JWT on a federated API. Backend contract: `@rodit/rodit-auth-be` ≥9.13.
-
-## Operator docs
-
-MCP (docs only): `https://api.identyclaw.com/mcp` → `doc:skills`, `doc:reference:ironclaw-integration-guide`.

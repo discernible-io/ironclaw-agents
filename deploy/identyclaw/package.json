@@ -5,7 +5,8 @@
   "description": "Host-side IdentyClaw login/HOLA helper for IronClaw Podman deploy (keys outside the agent sandbox)",
   "type": "module",
   "bin": {
-    "ironclaw-identyclaw": "./src/cli.mjs"
+    "ironclaw-identyclaw": "./src/cli.mjs",
+    "idcp": "./src/cli.mjs"
   },
   "scripts": {
     "start": "node src/server.mjs",
