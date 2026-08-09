@@ -7,11 +7,13 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import nacl from "tweetnacl";
-import bs58 from "bs58";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const require = createRequire(pathToFileURL(path.join(ROOT, "package.json")));
+const { nearPrivateKeyToSigningSecretKey } = require(
+  path.join(ROOT, "vendor", "hola-client", "lib", "near-key.js")
+);
 
 // Quiet @rodit/rodit-auth-be import-time logging before first require.
 process.env.LOG_LEVEL = process.env.LOG_LEVEL || "error";
@@ -100,9 +102,9 @@ function base64Url(bytes) {
   return Buffer.from(bytes).toString("base64url");
 }
 
-function secretKeyFromNearPrivateKey(nearPrivateKey) {
-  const keyBody = nearPrivateKey.replace(/^ed25519:/, "").trim();
-  return bs58.decode(keyBody).slice(0, 32);
+/** NEAR `ed25519:...` → 64-byte tweetnacl signing secret (same as openclaw-identyclaw-plugin). */
+export function secretKeyFromNearPrivateKey(nearPrivateKey) {
+  return nearPrivateKeyToSigningSecretKey(nearPrivateKey);
 }
 
 function sessionDir() {

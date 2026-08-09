@@ -65,7 +65,10 @@ pub(super) fn manifest() -> Result<CapabilityManifest, ExtensionError> {
         IDCP_CAPABILITY_ID,
         "IdentyClaw Passport helpers via the host idcp sidecar (ensure_session, me, \
          request, create_hola, verify_hola, agents, info). Prefer this over inventing \
-         signatures or pasting JWTs. Never returns private keys or full JWTs.",
+         signatures or pasting JWTs. Never returns private keys or full JWTs. \
+         For federated login to a peer API, pass base with the peer https URL on \
+         ensure_session and the same base on later request/HOLA calls; omit base for home \
+         https://api.identyclaw.com. Do not pass the loopback helper URL as base.",
         vec![EffectKind::DispatchCapability],
         PermissionMode::Allow,
         Some(ResourceProfile {
@@ -89,7 +92,9 @@ pub(super) async fn dispatch(input: &Value) -> Result<Value, FirstPartyCapabilit
         .get("op")
         .and_then(Value::as_str)
         .ok_or_else(input_error)?;
-    let base = optional_string(input, "base")?;
+    let base = optional_string(input, "base")?
+        .or(optional_string(input, "apiEndpoint")?)
+        .or(optional_string(input, "api_endpoint")?);
     let plan = match op {
         "ensure_session" | "ensure-session" => HelperCall::post(
             "/v1/ensure_session",
@@ -463,5 +468,28 @@ mod tests {
         assert_eq!(redacted["nested"]["access_token"], json!("[redacted]"));
         assert_eq!(redacted["nested"]["tokenId"], json!("abc"));
         assert_eq!(redacted["body"], json!("[redacted-jwt]"));
+    }
+
+    #[test]
+    fn ensure_body_accepts_peer_api_endpoint() {
+        assert_eq!(
+            ensure_body_with_base(Some("https://peer.example.com")),
+            json!({ "apiEndpoint": "https://peer.example.com" })
+        );
+        assert_eq!(ensure_body_with_base(None), json!({}));
+    }
+
+    #[tokio::test]
+    async fn accepts_hyphenated_op_and_api_endpoint_alias() {
+        // Without a helper, dispatch still accepts the aliases and returns a
+        // structured unreachable result (not InputEncode).
+        let out = dispatch(&json!({
+            "op": "ensure-session",
+            "apiEndpoint": "https://peer.example.com"
+        }))
+        .await
+        .expect("aliases must not InputEncode");
+        assert_eq!(out["ok"], json!(false));
+        assert_eq!(out["error"], json!("identyclaw_helper_unreachable"));
     }
 }

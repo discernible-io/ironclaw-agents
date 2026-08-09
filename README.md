@@ -246,6 +246,14 @@ it stays visible when `builtin.shell` does not. On shell-enabled profiles the
 `idcp` CLI on `PATH` (`/opt/idcp/bin/idcp` in the Podman pod) is an optional
 alternative with the same verbs.
 
+Under `AskAlways` (volume / secure-default), every Allow-mode tool would
+otherwise prompt for approval. `builtin.idcp` is on the local-dev
+`exempt_capabilities` list so identity / federated login / HOLA do not stall
+on “Approve reads” — keys and JWTs stay on the host helper either way.
+`builtin.http` is also exempted there so simple uptime / health probes do not
+re-gate on every retry when global auto-approve is off (`builtin.http.save`
+stays gated).
+
 #### Enable on a host (once)
 
 Using the Podman deploy kit in this fork:
@@ -261,6 +269,11 @@ Using the Podman deploy kit in this fork:
 Any Reborn agent on that host then shares the same Passport via the sidecar.
 In chat, ask for identity / HOLA / Passport work — the skill steers the model
 to calls such as `{ "op": "me" }` or `{ "op": "ensure_session" }`.
+
+**Federated peer APIs:** pass the peer HTTPS URL as `base` (do not reuse the home
+JWT). Example: `{ "op": "ensure_session", "base": "https://peer.example.com" }`
+then `{ "op": "request", "method": "GET", "path": "/api/…", "base": "https://peer.example.com" }`.
+See [`skills/identyclaw/SKILL.md`](skills/identyclaw/SKILL.md).
 
 Supported ops: `ensure_session`, `me`, `request`, `create_hola`, `verify_hola`,
 `agents`, `info`, `list_sessions`. Enrollment stays host-only

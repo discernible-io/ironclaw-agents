@@ -71,6 +71,16 @@ exempt_capabilities = [
     #   to exempt here (unlike `memory_write`, an arbitrary-path write that is
     #   NOT exempt and still hits the gate).
     "builtin.profile_set",
+    # IdentyClaw host helper: DispatchCapability only; Passport keys/JWTs stay on
+    # the host sidecar; model sees redacted JSON. Under hosted-single-tenant-volume
+    # (AskAlways) every Allow tool otherwise gates when global auto-approve is off,
+    # which makes identity/HOLA/federated login unusable. Exempt like profile_set.
+    "builtin.idcp",
+    # Preview / volume UX: with global auto-approve off, ApproveOnce is one-shot, so
+    # a simple "is this host up?" turn re-gates on every builtin.http retry / second
+    # URL and looks like an endless approval loop. Egress is still brokered and
+    # grant-scoped (local_dev_wildcard). Do NOT exempt builtin.http.save (writes).
+    "builtin.http",
 ]
 
 [approval_defaults.spawn_capability]

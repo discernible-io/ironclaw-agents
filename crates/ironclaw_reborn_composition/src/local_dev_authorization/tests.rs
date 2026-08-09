@@ -17,8 +17,8 @@ use ironclaw_host_api::{
     PermissionMode, Principal, ResourceEstimate, RuntimeKind, Timestamp, TrustClass, UserId,
 };
 use ironclaw_host_runtime::{
-    BUILTIN_FIRST_PARTY_PROVIDER, PROFILE_SET_CAPABILITY_ID, TRACE_COMMONS_ONBOARD_CAPABILITY_ID,
-    TRACE_COMMONS_PROFILE_SET_CAPABILITY_ID,
+    BUILTIN_FIRST_PARTY_PROVIDER, HTTP_CAPABILITY_ID, IDCP_CAPABILITY_ID, PROFILE_SET_CAPABILITY_ID,
+    TRACE_COMMONS_ONBOARD_CAPABILITY_ID, TRACE_COMMONS_PROFILE_SET_CAPABILITY_ID,
 };
 use ironclaw_trust::{AuthorityCeiling, EffectiveTrustClass, TrustDecision, TrustProvenance};
 use serde_json::json;
@@ -519,6 +519,34 @@ async fn local_dev_trace_commons_onboard_skips_approval_gate() {
     assert!(
         matches!(decision, ironclaw_host_api::Decision::Allow { .. }),
         "onboard is consented in-turn and exempt, so it should not require a REPL approval gate, got {decision:?}"
+    );
+}
+
+#[tokio::test]
+async fn local_dev_builtin_idcp_skips_approval_gate() {
+    // Under AskAlways / global-auto-approve-off, DispatchCapability alone still
+    // gates Allow-mode tools unless exempt. IdentyClaw must stay exempt.
+    let decision =
+        trace_commons_authorize_decision(IDCP_CAPABILITY_ID, vec![EffectKind::DispatchCapability])
+            .await;
+    assert!(
+        matches!(decision, ironclaw_host_api::Decision::Allow { .. }),
+        "builtin.idcp is host-mediated (keys/JWTs never model-visible) and must skip the approval gate; got {decision:?}"
+    );
+}
+
+#[tokio::test]
+async fn local_dev_builtin_http_skips_approval_gate() {
+    // Preview/volume: one-shot ApproveOnce + auto-approve-off otherwise re-gates
+    // every health/uptime probe (new URL / retry = new fingerprint).
+    let decision = trace_commons_authorize_decision(
+        HTTP_CAPABILITY_ID,
+        vec![EffectKind::DispatchCapability, EffectKind::Network],
+    )
+    .await;
+    assert!(
+        matches!(decision, ironclaw_host_api::Decision::Allow { .. }),
+        "builtin.http must skip the approval gate on local-dev/volume policy; got {decision:?}"
     );
 }
 

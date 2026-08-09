@@ -530,6 +530,29 @@ mod tests {
         );
         assert!(
             policy
+                .approval_gate_exempt_capabilities()
+                .iter()
+                .any(|capability| capability.as_str() == "builtin.idcp"),
+            "builtin.idcp must be approval-exempt (host-mediated Passport helper; AskAlways \
+             would otherwise gate every identity/HOLA/federated call)"
+        );
+        assert!(
+            policy
+                .approval_gate_exempt_capabilities()
+                .iter()
+                .any(|capability| capability.as_str() == "builtin.http"),
+            "builtin.http must be approval-exempt on volume/preview (ApproveOnce + auto-approve \
+             off otherwise re-gates every health/uptime probe)"
+        );
+        assert!(
+            !policy
+                .approval_gate_exempt_capabilities()
+                .iter()
+                .any(|capability| capability.as_str() == "builtin.http.save"),
+            "builtin.http.save must remain gated (network + filesystem write)"
+        );
+        assert!(
+            policy
                 .approval_defaults
                 .spawn_capability
                 .effects

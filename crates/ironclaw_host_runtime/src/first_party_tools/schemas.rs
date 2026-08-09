@@ -54,20 +54,32 @@ pub(crate) fn resolve_builtin_input_schema_ref(reference: &str) -> Option<Value>
                     "type": "string",
                     "enum": [
                         "ensure_session",
+                        "ensure-session",
                         "list_sessions",
+                        "list-sessions",
                         "me",
                         "info",
                         "agents",
                         "request",
                         "create_hola",
+                        "create-hola",
                         "verify_hola",
+                        "verify-hola",
                         "enroll"
                     ],
-                    "description": "IdentyClaw helper operation (same verbs as the idcp CLI)"
+                    "description": "IdentyClaw helper operation (same verbs as the idcp CLI). Prefer underscore forms (ensure_session)."
                 },
                 "base": {
                     "type": "string",
-                    "description": "Optional IdentyClaw API base URL for federated hosts (apiEndpoint)"
+                    "description": "Federated peer IdentyClaw HTTPS apiEndpoint (e.g. https://peer.example.com). Omit for home https://api.identyclaw.com. Never set this to the loopback helper (127.0.0.1:3921). For federation: ensure_session with base, then request/HOLA with the same base."
+                },
+                "apiEndpoint": {
+                    "type": "string",
+                    "description": "Alias for base (federated peer HTTPS URL)"
+                },
+                "api_endpoint": {
+                    "type": "string",
+                    "description": "Alias for base (federated peer HTTPS URL)"
                 },
                 "method": {
                     "type": "string",
