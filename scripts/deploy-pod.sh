@@ -55,6 +55,9 @@ fi
 ironclaw_ensure_app_layout
 ironclaw_prepare_data_dir
 ironclaw_prepare_identyclaw_dirs
+ironclaw_prepare_himalaya
+ironclaw_migrate_volume_state_for_local_dev
+ironclaw_sync_boot_profile_in_config
 ironclaw_normalize_tls_certs
 
 if [[ "${SKIP_PULL:-0}" != 1 ]]; then
@@ -83,11 +86,16 @@ REBORN_VOLUMES=(
   -v "${IDCP_SRC}:/opt/idcp:ro${z}"
 )
 # Optional Migadu/Himalaya mail config from ironclaw-app (password via auth.cmd).
-if [[ -f "${APP_DIR}/config/himalaya/config.container.toml" && -x "${APP_DIR}/secrets/himalaya/print-password.sh" ]]; then
+# Probe executability via podman unshare — host `test -x` fails when the helper
+# is owned by the mapped container uid (uid 1000 inside the Reborn image).
+if ironclaw_himalaya_mounts_ready; then
+  echo "==> Mounting Himalaya config + secrets into ${APP_CONTAINER_NAME}"
   REBORN_VOLUMES+=(
     -v "${APP_DIR}/config/himalaya/config.container.toml:/home/ironclaw/.config/himalaya/config.toml:ro${z}"
     -v "${APP_DIR}/secrets/himalaya:/secrets/himalaya:ro${z}"
   )
+else
+  echo "==> Skipping Himalaya mounts (need config/himalaya/config.container.toml + executable secrets/himalaya/print-password.sh)"
 fi
 podman run -d \
   --log-driver=k8s-file \
