@@ -74,8 +74,8 @@ WebUI: open the HTTPS URL and authenticate with the bearer token from
 | `./ironclaw.sh init` | Create `ironclaw-app` + seed `secrets.env` |
 | `./ironclaw.sh generate-certs` | Self-signed `fullchain.pem` / `privkey.pem` |
 | `./ironclaw.sh build-image` | Build Reborn + nginx images |
-| `./ironclaw.sh start` | Recreate pod (`--skip-build` to reuse images) |
-| `./ironclaw.sh stop` / `restart` | Teardown / recreate |
+| `./ironclaw.sh start` | Recreate pod (reuse images; `--build` to rebuild first) |
+| `./ironclaw.sh stop` / `restart` | Teardown / recreate (reuse images) |
 | `./ironclaw.sh status` | Podman + health probe |
 | `./ironclaw.sh logs [reborn\|nginx]` | Follow logs |
 | `./ironclaw.sh token` | Print WebUI token |

@@ -8,9 +8,9 @@
 #   init                 Create ironclaw-app layout + seed secrets.env from template
 #   generate-certs       Self-signed TLS PEMs into ironclaw-app/certs/
 #   build-image          Build ironclaw-reborn + nginx (+ identyclaw helper) images
-#   start                Recreate pod (builds if images missing unless --skip-build)
+#   start [--build]      Recreate pod (reuse images; pass --build to rebuild first)
 #   stop                 Stop/remove pod
-#   restart              stop + start
+#   restart              stop + start (reuse images)
 #   status               Podman ps + health probe
 #   logs [reborn|nginx|identyclaw]  Follow container logs (default: reborn)
 #   token                Print IRONCLAW_REBORN_WEBUI_TOKEN from secrets.env
@@ -77,7 +77,7 @@ cmd_generate_certs() {
 }
 
 image_tag() {
-  # Stable local tag by default so `restart` / `--skip-build` survive git
+  # Stable local tag by default so `start` / `restart` reuse images across git
   # commits. Override with IRONCLAW_IMAGE_TAG or LOCAL_TAG (e.g. a SHA for CI).
   if [[ -n "${IRONCLAW_IMAGE_TAG:-}" ]]; then
     printf '%s' "$IRONCLAW_IMAGE_TAG"
@@ -208,22 +208,33 @@ cmd_identyclaw() {
 
 cmd_start() {
   require_podman
-  local skip=0 tag
+  local do_build=0 tag
   tag="$(image_tag)"
   for arg in "$@"; do
     case "$arg" in
-      --skip-build) skip=1 ;;
+      --build) do_build=1 ;;
+      --skip-build)
+        # Deprecated no-op: start reuses images by default.
+        ;;
+      -h|--help)
+        echo "Usage: ./ironclaw.sh start [--build]"
+        echo "  Recreate the pod from existing images."
+        echo "  --build   Rebuild images first (same as build-image + start)."
+        return 0
+        ;;
+      *)
+        echo "Unknown start option: $arg" >&2
+        echo "Usage: ./ironclaw.sh start [--build]" >&2
+        exit 1
+        ;;
     esac
   done
-  if [[ "$skip" -eq 0 ]]; then
-    if ! podman image exists "localhost/ironclaw-reborn:${tag}" \
-      || ! podman image exists "localhost/ironclaw-nginx:${tag}"; then
-      cmd_build_image
-    fi
+  if [[ "$do_build" -eq 1 ]]; then
+    cmd_build_image
   elif ! podman image exists "localhost/ironclaw-reborn:${tag}" \
     || ! podman image exists "localhost/ironclaw-nginx:${tag}"; then
     echo "Missing images for tag '${tag}'." >&2
-    echo "Run: ./ironclaw.sh build-image" >&2
+    echo "Run: ./ironclaw.sh build-image   # or: ./ironclaw.sh start --build" >&2
     echo "Or retag an existing build: podman tag localhost/ironclaw-reborn:<old> localhost/ironclaw-reborn:${tag}" >&2
     exit 1
   fi
@@ -246,7 +257,7 @@ cmd_stop() {
 
 cmd_restart() {
   cmd_stop
-  cmd_start --skip-build
+  cmd_start
 }
 
 cmd_status() {
