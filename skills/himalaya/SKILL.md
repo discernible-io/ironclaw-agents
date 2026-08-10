@@ -31,7 +31,9 @@ requires:
 
 # Himalaya
 
-Use the `himalaya` CLI via `shell` for IMAP/SMTP (and other Himalaya backends). Prefer this over inventing raw IMAP/SMTP clients. Do not paste mailbox passwords, app passwords, OAuth tokens, or keyring secrets into chat or logs.
+Use the `himalaya` CLI via **`shell` only** for IMAP/SMTP (and other Himalaya backends). Prefer this over inventing raw IMAP/SMTP clients. Do not paste mailbox passwords, app passwords, OAuth tokens, or keyring secrets into chat or logs.
+
+**Do not** use `read_file` / `list_dir` / `write_file` on Himalaya paths (`~/.config/himalaya/…`, `$XDG_CONFIG_HOME/himalaya/…`, `/secrets/himalaya/…`). Coding tools only see the `workspace` scoped root; those config/secret paths are outside it and fail with "not under an available scoped root". Discover account/from address with `himalaya account list` and mailbox output (e.g. inbox for `ron@agenthood.me`), and write draft `.eml` / MML files under `/workspace` (or pipe via shell stdin).
 
 For Google Workspace through IronClaw's first-party **Gmail** extension (OAuth API), use that extension instead. Use Himalaya when the user has (or wants) a local Himalaya config / non-Gmail IMAP/SMTP account.
 
