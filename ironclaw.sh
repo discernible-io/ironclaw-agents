@@ -316,7 +316,7 @@ cmd_chat() {
   cat <<EOF
 IronClaw chat is the Reborn WebUI (browser), not an in-container TUI.
 
-  URL:   ${url}/v2/
+  URL:   ${url}/
   Token: ${token}
 
 On this host, confirm health with:
