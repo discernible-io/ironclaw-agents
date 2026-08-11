@@ -223,8 +223,13 @@ not as the full PostgreSQL production composition.
 
 ### IdentyClaw Passport (`builtin.idcp`)
 
-IronClaw agents talk to [IdentyClaw](https://api.identyclaw.com) through a
+IronClaw agents talk to [IdentyClaw](https://www.discernible.io) through a
 **built-in host capability**, not a plugin or installable extension.
+Every path starts with a NEAR account and a Passport mint — you do not register
+with IdentyClaw to exist. Product overview and get-started:
+[www.discernible.io](https://www.discernible.io); purchase portal:
+[purchase.identyclaw.com](https://purchase.identyclaw.com); API/docs MCP:
+[api.identyclaw.com](https://api.identyclaw.com).
 
 | Piece | Role |
 | --- | --- |
@@ -254,16 +259,84 @@ on “Approve reads” — keys and JWTs stay on the host helper either way.
 re-gate on every retry when global auto-approve is off (`builtin.http.save`
 stays gated).
 
-#### Enable on a host (once)
+#### Get a Passport (human onboarding)
 
-Using the Podman deploy kit in this fork:
+Canonical product steps from [IdentyClaw / Discernible.io](https://www.discernible.io/#enroll):
+install tooling → create a NEAR implicit account → fund NEAR → mint at the
+Purchase Portal. In this fork, enroll writes credentials under the Podman app
+dir; never paste private keys into chat.
+
+##### 1. Install this repo
 
 ```bash
+git clone <this-repo-url> ~/ironclaw-idc
+cd ~/ironclaw-idc
+chmod +x ironclaw.sh scripts/*.sh
+./ironclaw.sh init
+# Edit ../ironclaw-app/secrets/secrets.env — LLM key, host/port/BASE_URL
 ./ironclaw.sh idcp-init
+```
+
+`init` creates the sibling `../ironclaw-app/` layout (secrets, certs, data).
+Full Podman deploy: [`deploy/podman/README.md`](deploy/podman/README.md).
+
+##### 2. Create a NEAR account
+
+Generate a mainnet **implicit** account (64-char hex). Credentials stay on the
+host as gennearaccount-compatible JSON (`chmod 700` on the directory).
+
+```bash
 ./ironclaw.sh idcp enroll
-# Mint a Passport at https://purchase.identyclaw.com with the printed account_id
+# Prints account_id / implicit_account_id — copy it for purchase
+```
+
+`enroll` prefers `gennearaccount` when installed, otherwise the bundled helper
+writer. Alternative (same JSON layout): install
+[gennearaccount](https://github.com/discernible-io/gennearaccount) and run
+`gennearaccount ../ironclaw-app/secrets/near-credentials`. Keep the JSON on
+durable disk; losing the private key loses the Passport permanently.
+
+##### 3. Get NEAR (HOT Wallet)
+
+Minting charges **NEAR on mainnet**. A practical path is
+[HOT Wallet](https://hot-labs.org/wallet/) (Telegram mini-app, browser
+extension, or mobile) — a common NEAR wallet for deposits, swaps, and dApp
+connect:
+
+1. Install / open [HOT Wallet](https://hot-labs.org/chains/near) and create or
+   import a wallet (back up the seed phrase offline).
+2. **Deposit or swap into NEAR** — buy NEAR on an exchange and withdraw to your
+   HOT NEAR address, or use HOT’s in-wallet **swap** / bridge if you already
+   hold other assets. You need enough NEAR for the Passport tier plus gas
+   (see current fees on the purchase portal; Personal starts from a small
+   amount of Ⓝ; Collectible / Enterprise cost more).
+3. Keep HOT funded for checkout. The Purchase Portal’s **Connect NEAR Wallet**
+   step uses a NEAR wallet (HOT works) to pay; the Passport is minted **to**
+   the agent’s hex `account_id` from step 2 (not your HOT named account).
+
+You can instead withdraw NEAR from a CEX straight to the implicit
+`account_id` if the exchange supports hex addresses; HOT is usually simpler
+for humans paying at the portal.
+
+##### 4. Craft the Passport at purchase.identyclaw.com
+
+1. Open [https://purchase.identyclaw.com](https://purchase.identyclaw.com).
+2. Fill agent identity fields (display name, **Creature** / role, Contact URI,
+   optional traits / webhook URL / longevity).
+3. Set **NEAR Account that will receive the IdentyClaw Passport** to the
+   64-char hex `account_id` from `idcp enroll` (implicit account, not a
+   `*.near` name).
+4. **Connect NEAR Wallet** (e.g. HOT), review the estimated fee, and mint
+   Personal / Enterprise / Collectible.
+5. Wait for on-chain confirmation (~seconds). The Passport (`tokenId`) is
+   held by that NEAR account.
+
+##### 5. Confirm on this host
+
+```bash
 ./ironclaw.sh build-image && ./ironclaw.sh start
-./ironclaw.sh idcp ensure_session && ./ironclaw.sh idcp me
+./ironclaw.sh idcp ensure_session
+./ironclaw.sh idcp me
 ```
 
 Any Reborn agent on that host then shares the same Passport via the sidecar.
@@ -281,7 +354,9 @@ Supported ops: `ensure_session`, `me`, `request`, `create_hola`, `verify_hola`,
 
 Details: [`deploy/identyclaw/README.md`](deploy/identyclaw/README.md),
 [`deploy/podman/README.md`](deploy/podman/README.md),
-[`skills/identyclaw/SKILL.md`](skills/identyclaw/SKILL.md).
+[`skills/identyclaw/SKILL.md`](skills/identyclaw/SKILL.md),
+IdentyClaw enrollment MCP `doc:reference:enrollment` /
+`guide:enrollment` at `https://api.identyclaw.com/mcp`.
 
 `local-dev-yolo` grants trusted-laptop host access and must be confirmed
 explicitly:
