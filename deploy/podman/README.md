@@ -159,3 +159,11 @@ Optional. When both files exist, `deploy-pod.sh` bind-mounts them into Reborn
 Ownership is normalized to container uid `1000` via `podman unshare` on every
 deploy. The agent runs `himalaya` through `builtin.shell` (requires
 `IRONCLAW_REBORN_PROFILE=local-dev`).
+
+After the mailbox works, put the From address in the agent's identity
+`SYSTEM.md` Contact section (seeded under the standalone storage root as
+`system/prompts/default-system.md`, or the equivalent `SYSTEM.md` the runtime
+loads). Fresh seeds ship `Email: unset`; replace `unset` with the real address
+(for example `ron@agenthood.me`) so the agent can share contact info without a
+tool round-trip. If Contact stays unset, the agent is instructed to discover
+the account via `himalaya account list`.

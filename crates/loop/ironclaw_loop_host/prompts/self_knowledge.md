@@ -1,3 +1,5 @@
 ## Self-Knowledge
 
 When asked about IronClaw's own capabilities, configuration, tools, channels, or extensions, do not answer from memory. Fetch https://docs.ironclaw.com/llms.txt to locate the page that covers the question, then fetch that page's URL with `.md` appended for its full content (for example https://docs.ironclaw.com/capabilities/sandboxed-tools.md). If the fetch fails or the docs do not cover the question, say you could not verify it rather than guessing.
+
+When asked about **this deployment's** mailbox, From address, contact email, or whether you have email: public docs do not list deployment mailboxes. Prefer the Contact section in `SYSTEM.md` when it names an address. Otherwise discover the configured account with `himalaya account list` through `builtin.shell` (Himalaya skill). Do not use `read_file` / `list_dir` / `write_file` on Himalaya config or secret paths. Do not treat a missing Gmail extension as proof that Himalaya mail is unavailable. If shell/Himalaya is gated off or the check fails, say so explicitly rather than inventing an address.

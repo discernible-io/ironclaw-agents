@@ -113,4 +113,43 @@ mod tests {
             }
         }
     }
+
+    /// Deployment mailbox is not in public docs; self-knowledge must route the
+    /// model to SYSTEM.md Contact and/or `himalaya account list` instead of
+    /// guessing or claiming email is unavailable.
+    #[test]
+    fn self_knowledge_teaches_deployment_mailbox_discovery() {
+        assert!(
+            SELF_KNOWLEDGE_PROTOCOL_PROMPT.contains("himalaya account list"),
+            "self-knowledge must name the himalaya discovery command"
+        );
+        assert!(
+            SELF_KNOWLEDGE_PROTOCOL_PROMPT.contains("Contact"),
+            "self-knowledge must prefer the SYSTEM.md Contact section when set"
+        );
+        assert!(
+            SELF_KNOWLEDGE_PROTOCOL_PROMPT.contains("builtin.shell")
+                || SELF_KNOWLEDGE_PROTOCOL_PROMPT.contains("shell"),
+            "self-knowledge must route discovery through shell, not filesystem tools"
+        );
+    }
+
+    /// Fresh SYSTEM.md seeds include an operator-editable Contact email so the
+    /// agent can share a From address without hardcoding a deployment mailbox
+    /// into the product binary.
+    #[test]
+    fn default_system_prompt_seeds_contact_email_placeholder() {
+        assert!(
+            DEFAULT_SYSTEM_PROMPT.contains("## Contact"),
+            "seed SYSTEM.md must include a Contact section"
+        );
+        assert!(
+            DEFAULT_SYSTEM_PROMPT.contains("Email: unset"),
+            "seed Contact email must be an explicit unset placeholder for operators"
+        );
+        assert!(
+            DEFAULT_SYSTEM_PROMPT.contains("himalaya account list"),
+            "seed Contact section must teach himalaya discovery when unset"
+        );
+    }
 }

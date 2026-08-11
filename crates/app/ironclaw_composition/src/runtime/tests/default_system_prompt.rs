@@ -166,8 +166,9 @@ async fn standalone_runtime_uses_existing_edited_default_system_prompt() {
                 && message
                     .content
                     .contains("https://docs.ironclaw.com/llms.txt")
+                && message.content.contains("himalaya account list")
         }),
-        "self-knowledge docs grounding should reach the model even for a custom system prompt"
+        "self-knowledge docs grounding and mailbox discovery should reach the model even for a custom system prompt"
     );
 
     runtime.shutdown().await.expect("runtime shutdown");

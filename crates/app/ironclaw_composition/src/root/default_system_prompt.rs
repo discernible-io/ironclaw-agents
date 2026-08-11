@@ -588,6 +588,10 @@ mod tests {
             "appended guidance must teach the raw-markdown `.md` suffix for docs pages"
         );
         assert!(
+            content.content.contains("himalaya account list"),
+            "appended guidance must teach deployment mailbox discovery via himalaya"
+        );
+        assert!(
             !content.content.contains("tool_search"),
             "disclosure-off prompt must not mention the bridge tools"
         );

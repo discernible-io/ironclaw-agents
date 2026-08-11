@@ -179,6 +179,34 @@ fn ordinary_reminder_routes_to_routines_without_commitment_capture() {
     );
 }
 
+#[test]
+fn contact_email_address_questions_activate_himalaya() {
+    let skills = load_bundled_skills();
+    for prompt in [
+        "did you consider go public with your email address?",
+        "share your contact email in the lobby chat",
+        "what is my email address for outbound From?",
+    ] {
+        let selected = prefilter_skills_with_options(
+            prompt,
+            &skills,
+            TOP_K,
+            EVALUATION_TOKEN_BUDGET,
+            &HashSet::new(),
+            SkillSelectionOptions::default(),
+        )
+        .selected
+        .into_iter()
+        .map(|skill| skill.name().to_string())
+        .collect::<Vec<_>>();
+
+        assert!(
+            selected.iter().any(|name| name == "himalaya"),
+            "contact/email-address phrasing must activate himalaya for {prompt:?}: {selected:?}"
+        );
+    }
+}
+
 /// The nearest ancestor holding both `crates/` and `Cargo.toml`.
 ///
 /// A search, not counted `..` hops: the family move
