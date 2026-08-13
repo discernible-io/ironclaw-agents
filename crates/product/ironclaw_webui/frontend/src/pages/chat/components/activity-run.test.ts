@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { test } from "vitest";
 import vm from "node:vm";
 
+import { messageBelongsToActiveRun } from "../lib/message-types";
+
 function activityRunSourceForTest() {
   const source = readFileSync(new URL("./activity-run.tsx", import.meta.url), "utf8");
   const lines = [];
@@ -22,62 +24,50 @@ function activityRunSourceForTest() {
   return `${lines.join("\n")}\nglobalThis.__testExports = { ActivityRun };`;
 }
 
-test("ActivityRun keeps running tool activity collapsed by default", () => {
+function renderActivityRun(activity, activeRunId = null, summary = {
+  label: "Activity - 1 tool, running",
+  hasError: false,
+}) {
   const context = {
     globalThis: {},
     html: (strings, ...values) => ({ strings: Array.from(strings), values }),
     Icon() {},
     MarkdownRenderer() {},
     React: {
+      useEffect: () => {},
       useMemo: (factory) => factory(),
       useState: (initial) => [typeof initial === "function" ? initial() : initial, () => {}],
     },
-    summarizeActivity: () => ({
-      label: "Activity - 1 tool, running",
-      hasError: false,
-    }),
+    messageBelongsToActiveRun,
+    summarizeActivity: () => summary,
     useT: () => (key) => key,
     ToolActivity() {},
   };
 
   vm.runInNewContext(activityRunSourceForTest(), context);
-  const tree = context.globalThis.__testExports.ActivityRun({
-    activity: [
-      {
-        id: "tool-search",
-        role: "tool_activity",
-        toolName: "web-access.search",
-        toolStatus: "running",
-      },
-    ],
+  return context.globalThis.__testExports.ActivityRun({
+    activity,
+    activeRunId,
   });
+}
+
+test("ActivityRun keeps running tool activity collapsed by default", () => {
+  const tree = renderActivityRun([
+    {
+      id: "tool-search",
+      role: "tool_activity",
+      toolName: "web-access.search",
+      toolStatus: "running",
+    },
+  ]);
 
   assert.ok(containsScalar(tree, "false"));
   assert.equal(hasComponentNamed(tree, "ActivityItem"), false);
 });
 
 test("ActivityRun keeps declined tool activity collapsed", () => {
-  const context = {
-    globalThis: {},
-    html: (strings, ...values) => ({ strings: Array.from(strings), values }),
-    Icon() {},
-    MarkdownRenderer() {},
-    React: {
-      useMemo: (factory) => factory(),
-      useState: (initial) => [typeof initial === "function" ? initial() : initial, () => {}],
-    },
-    summarizeActivity: () => ({
-      label: "Activity - 1 tool, 1 declined",
-      hasError: false,
-      hasDeclined: true,
-    }),
-    useT: () => (key) => key,
-    ToolActivity() {},
-  };
-
-  vm.runInNewContext(activityRunSourceForTest(), context);
-  const tree = context.globalThis.__testExports.ActivityRun({
-    activity: [
+  const tree = renderActivityRun(
+    [
       {
         id: "tool-install",
         role: "tool_activity",
@@ -85,33 +75,21 @@ test("ActivityRun keeps declined tool activity collapsed", () => {
         toolStatus: "declined",
       },
     ],
-  });
+    null,
+    {
+      label: "Activity - 1 tool, 1 declined",
+      hasError: false,
+      hasDeclined: true,
+    },
+  );
 
   assert.ok(containsScalar(tree, "false"));
   assert.equal(hasComponentNamed(tree, "ActivityItem"), false);
 });
 
 test("ActivityRun keeps failed nested tool activity collapsed", () => {
-  const context = {
-    globalThis: {},
-    html: (strings, ...values) => ({ strings: Array.from(strings), values }),
-    Icon() {},
-    MarkdownRenderer() {},
-    React: {
-      useMemo: (factory) => factory(),
-      useState: (initial) => [typeof initial === "function" ? initial() : initial, () => {}],
-    },
-    summarizeActivity: () => ({
-      label: "Activity - 1 tool, 1 failed",
-      hasError: true,
-    }),
-    useT: () => (key) => key,
-    ToolActivity() {},
-  };
-
-  vm.runInNewContext(activityRunSourceForTest(), context);
-  const tree = context.globalThis.__testExports.ActivityRun({
-    activity: [
+  const tree = renderActivityRun(
+    [
       {
         id: "assistant-tool-call",
         role: "assistant",
@@ -124,43 +102,53 @@ test("ActivityRun keeps failed nested tool activity collapsed", () => {
         ],
       },
     ],
-  });
+    null,
+    {
+      label: "Activity - 1 tool, 1 failed",
+      hasError: true,
+    },
+  );
 
   assert.ok(containsScalar(tree, "false"));
   assert.equal(hasComponentNamed(tree, "ActivityItem"), false);
 });
 
 test("ActivityRun keeps reasoning activity collapsed", () => {
-  const context = {
-    globalThis: {},
-    html: (strings, ...values) => ({ strings: Array.from(strings), values }),
-    Icon() {},
-    MarkdownRenderer() {},
-    React: {
-      useMemo: (factory) => factory(),
-      useState: (initial) => [typeof initial === "function" ? initial() : initial, () => {}],
-    },
-    summarizeActivity: () => ({
-      label: "Activity",
-      hasError: false,
-    }),
-    useT: () => (key) => key,
-    ToolActivity() {},
-  };
-
-  vm.runInNewContext(activityRunSourceForTest(), context);
-  const tree = context.globalThis.__testExports.ActivityRun({
-    activity: [
+  const tree = renderActivityRun(
+    [
       {
         id: "reasoning",
         role: "thinking",
         content: "Considering the available evidence.",
       },
     ],
-  });
+    null,
+    {
+      label: "Activity",
+      hasError: false,
+    },
+  );
 
   assert.ok(containsScalar(tree, "false"));
   assert.equal(hasComponentNamed(tree, "ActivityItem"), false);
+});
+
+test("ActivityRun expands live activity for the active run", () => {
+  const tree = renderActivityRun(
+    [
+      {
+        id: "tool-search",
+        role: "tool_activity",
+        toolName: "web-access.search",
+        toolStatus: "running",
+        turnRunId: "run-1",
+      },
+    ],
+    "run-1",
+  );
+
+  assert.ok(containsScalar(tree, "true"));
+  assert.equal(hasComponentNamed(tree, "ActivityItem"), true);
 });
 
 function hasComponentNamed(node, name) {

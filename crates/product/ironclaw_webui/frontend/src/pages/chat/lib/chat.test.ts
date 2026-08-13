@@ -7,6 +7,7 @@ import { channelConnectionDisplayName } from "../../../lib/channel-connection-ev
 import { componentSourceForTest } from "../../../lib/vm-component-harness";
 import "../../../test/vm-tsx-setup";
 import { channelConnectionFromGate } from "./gates";
+import { liveWorkingStatus } from "./live-working-status";
 import { messageBelongsToActiveRun } from "./message-types";
 import {
   inspectorDebugEnabled,
@@ -140,6 +141,7 @@ function renderChat({
     channelConnectionFromGate,
     inspectorDebugEnabled,
     latestInspectorRunId,
+    liveWorkingStatus,
     messageBelongsToActiveRun,
     setThreadState: (threadId, state) =>
       threadStateUpdates.push({ threadId, state }),
@@ -370,6 +372,53 @@ test("Chat shows typing indicator before assistant text streams", () => {
   });
 
   assert.ok(findComponent(tree, components.TypingIndicator));
+});
+
+test("Chat labels the working indicator from the live tool action", () => {
+  const { tree, components } = renderChat({
+    hookState: {
+      messages: [
+        {
+          id: "message-1",
+          role: "user",
+          content: "hello",
+          turnRunId: "run-1",
+          timestamp: "2026-08-13T12:00:00.000Z",
+        },
+        {
+          id: "tool-search",
+          role: "tool_activity",
+          toolName: "web-access.search",
+          toolStatus: "running",
+          toolDetail: "slack connector",
+          turnRunId: "run-1",
+        },
+      ],
+      isProcessing: true,
+      pendingGate: null,
+      suggestions: [],
+      sseStatus: "open",
+      historyLoading: false,
+      hasMore: false,
+      cooldownSeconds: 0,
+      recoveryNotice: null,
+      activeRun: { runId: "run-1", threadId: "thread-1", status: "running" },
+      send: async () => ({}),
+      cancelRun: async () => {},
+      retryMessage: () => {},
+      approve: () => {},
+      recoverHistory: () => {},
+      loadMore: () => {},
+      setSuggestions: () => {},
+      submitAuthToken: async () => {},
+    },
+  });
+
+  const indicator = findComponent(tree, components.TypingIndicator);
+  assert.deepEqual(componentProps(indicator, components.TypingIndicator), {
+    label: "Searching · slack connector",
+    startedAtMs: Date.parse("2026-08-13T12:00:00.000Z"),
+  });
 });
 
 test("Chat keeps typing indicator while the active run streams assistant text", () => {

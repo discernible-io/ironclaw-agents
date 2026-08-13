@@ -27,7 +27,11 @@ type ReasoningItemProps = {
 export function ActivityRun({ activity, activeRunId = null }: ActivityRunProps) {
   const t = useT();
   const summary = React.useMemo(() => summarizeActivity(activity, t), [activity, t]);
-  const [expanded, setExpanded] = React.useState(false);
+  const isLive = activity.some((item) => messageBelongsToActiveRun(item, activeRunId));
+  const [expanded, setExpanded] = React.useState(isLive);
+  React.useEffect(() => {
+    if (isLive) setExpanded(true);
+  }, [isLive]);
 
   return (
     <div className="mr-auto flex w-full min-w-0 flex-col v2-chat-readable-width" data-testid="activity-run">

@@ -304,6 +304,46 @@ test("a plain SYSTEM notice without a structured command result keeps rendering 
   assert.doesNotMatch(html, /data-testid="command-result-mock"/);
 });
 
+test("live activity for the active run expands so the current work is visible", async () => {
+  const { ActivityRun } = await import("./activity-run");
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+
+  try {
+    act(() => {
+      root.render(
+        React.createElement(ActivityRun, {
+          activity: [
+            {
+              id: "tool-search",
+              role: CHAT_MESSAGE_ROLES.TOOL_ACTIVITY,
+              toolName: "web-access.search",
+              toolStatus: "running",
+              toolDetail: "slack connector",
+              turnRunId: "run-1",
+            },
+          ],
+          activeRunId: "run-1",
+        }),
+      );
+    });
+    assert.equal(
+      container
+        .querySelector('[data-testid="activity-run-toggle"]')
+        ?.getAttribute("aria-expanded"),
+      "true",
+    );
+    assert.notEqual(
+      container.querySelector('[data-testid="activity-run-items"]'),
+      null,
+    );
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+  }
+});
+
 test("incoming reasoning and tool failures do not expand an activity run", async () => {
   const { ActivityRun } = await import("./activity-run");
   const container = document.createElement("div");
@@ -364,8 +404,9 @@ async function renderExpandedActivity(activity, activeRunId: string | null = nul
     const toggle = container.querySelector<HTMLButtonElement>(
       '[data-testid="activity-run-toggle"]',
     );
-    assert.equal(toggle?.getAttribute("aria-expanded"), "false");
-    act(() => toggle?.click());
+    if (toggle?.getAttribute("aria-expanded") !== "true") {
+      act(() => toggle?.click());
+    }
     assert.equal(toggle?.getAttribute("aria-expanded"), "true");
     return container.innerHTML;
   } finally {

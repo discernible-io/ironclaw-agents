@@ -15,49 +15,69 @@ function typingIndicatorSourceForTest() {
   );
 }
 
-test("TypingIndicator keeps the brief action label beside the working indicator", () => {
+function renderTypingIndicator(props = {}, { nowMs = 1_700_000_000_000 } = {}) {
   const components = {
     NearProcessIndicator() {},
   };
   const context = {
     ...components,
+    Date: { now: () => nowMs },
+    React: {
+      useState: (initial) => [
+        typeof initial === "function" ? initial() : initial,
+        () => {},
+      ],
+      useEffect: () => {},
+    },
     globalThis: {},
+    window: {
+      setInterval: () => 1,
+      clearInterval: () => {},
+    },
   };
 
   vm.runInNewContext(typingIndicatorSourceForTest(), context);
-  const tree = context.globalThis.__testExports.TypingIndicator();
-  const indicator = findComponent(tree, components.NearProcessIndicator);
+  const tree = context.globalThis.__testExports.TypingIndicator(props);
+  return {
+    props: componentProps(
+      findComponent(tree, components.NearProcessIndicator),
+      components.NearProcessIndicator,
+    ),
+  };
+}
 
+test("TypingIndicator keeps the brief action label beside the working indicator", () => {
+  assert.deepEqual(renderTypingIndicator().props, {
+    state: "working",
+    label: "Working…",
+    elapsed: undefined,
+  });
+});
+
+test("TypingIndicator shows the live action and elapsed time while working", () => {
   assert.deepEqual(
-    componentProps(indicator, components.NearProcessIndicator),
+    renderTypingIndicator({
+      label: "Searching · slack",
+      startedAtMs: 1_700_000_000_000 - 12_000,
+    }).props,
     {
       state: "working",
-      label: "Working…",
+      label: "Searching · slack",
+      elapsed: "0:12",
     },
   );
 });
 
 test("TypingIndicator keeps the static mark with elapsed time after completion", () => {
-  const components = {
-    NearProcessIndicator() {},
-  };
-  const context = {
-    ...components,
-    globalThis: {},
-  };
-
-  vm.runInNewContext(typingIndicatorSourceForTest(), context);
-  const tree = context.globalThis.__testExports.TypingIndicator({
-    state: "done",
-    durationSeconds: 12,
-  });
-  const indicator = findComponent(tree, components.NearProcessIndicator);
-
   assert.deepEqual(
-    componentProps(indicator, components.NearProcessIndicator),
+    renderTypingIndicator({
+      state: "done",
+      durationSeconds: 12,
+    }).props,
     {
       state: "done",
       label: "Worked for 12s",
+      elapsed: undefined,
     },
   );
 });
@@ -68,26 +88,15 @@ test.each([
 ])(
   "TypingIndicator formats completed runs of %i seconds as HH:MM:SS",
   (durationSeconds, label) => {
-    const components = {
-      NearProcessIndicator() {},
-    };
-    const context = {
-      ...components,
-      globalThis: {},
-    };
-
-    vm.runInNewContext(typingIndicatorSourceForTest(), context);
-    const tree = context.globalThis.__testExports.TypingIndicator({
-      state: "done",
-      durationSeconds,
-    });
-    const indicator = findComponent(tree, components.NearProcessIndicator);
-
     assert.deepEqual(
-      componentProps(indicator, components.NearProcessIndicator),
+      renderTypingIndicator({
+        state: "done",
+        durationSeconds,
+      }).props,
       {
         state: "done",
         label,
+        elapsed: undefined,
       },
     );
   },

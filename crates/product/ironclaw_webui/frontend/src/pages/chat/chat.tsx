@@ -26,6 +26,7 @@ import { matchCommand } from "./lib/chat-commands";
 import { channelConnectionDisplayName } from "../../lib/channel-connection-events";
 import { channelConnectionFromGate } from "./lib/gates";
 import { NEW_DRAFT_KEY } from "./lib/draft-store";
+import { liveWorkingStatus } from "./lib/live-working-status";
 import { buildRuntimeContext } from "./lib/runtime-context";
 import { buildScopedLogsPath } from "../logs/lib/logs-data";
 import { useInterfacePreferences } from "../../lib/interface-preferences";
@@ -172,6 +173,10 @@ export function Chat({
   const showTypingIndicator =
     activeThreadIsProcessing &&
     !activeThreadHasGate;
+  const liveStatus = React.useMemo(
+    () => liveWorkingStatus(messages, activeRunId, t),
+    [messages, activeRunId, t],
+  );
   const hasMessages =
     messages.length > 0 ||
     activeThreadIsProcessing ||
@@ -460,7 +465,12 @@ export function Chat({
               />
             )}
             {showTypingIndicator &&
-            (<TypingIndicator />)}
+            (
+              <TypingIndicator
+                label={liveStatus.label}
+                startedAtMs={liveStatus.startedAtMs}
+              />
+            )}
             {activeThreadHasOnboarding &&
             (
               <OnboardingPairingCard
