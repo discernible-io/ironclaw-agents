@@ -49,10 +49,9 @@ ironclaw_deploy_tier() {
 }
 
 ironclaw_tier_port() {
-  case "$(ironclaw_deploy_tier)" in
-    development) printf '%s' "${IRONCLAW_APP_PORT:-5443}" ;;
-    main) printf '%s' "${IRONCLAW_APP_PORT:-9443}" ;;
-  esac
+  # Telegram webhooks only accept 443, 80, 88, or 8443. Default both tiers to
+  # 8443 so the public HTTPS URL can be registered with Bot API.
+  printf '%s' "${IRONCLAW_APP_PORT:-8443}"
 }
 
 ironclaw_tier_domain() {
@@ -239,6 +238,29 @@ ironclaw_prepare_data_dir() {
   # tree may be owned by the mapped container uid; ignore chown/chmod errors.
   podman unshare chown -R 1000:1000 "$data_dir" 2>/dev/null || true
   chmod 755 "$data_dir" 2>/dev/null || true
+}
+
+# Append the Telegram secrets.env template if the keys are not already present.
+ironclaw_ensure_telegram_env_template() {
+  local secrets
+  secrets="$(ironclaw_app_dir)/secrets/secrets.env"
+  [[ -f "$secrets" ]] || return 0
+  if grep -qE '^[[:space:]]*#?[[:space:]]*TELEGRAM_BOT_TOKEN=' "$secrets" 2>/dev/null; then
+    return 0
+  fi
+  {
+    echo ""
+    echo "# --- Telegram (operator admin configuration; not config.toml) ---"
+    echo "# Fill TELEGRAM_BOT_TOKEN + TELEGRAM_BOT_USERNAME, then:"
+    echo "#   ./ironclaw.sh telegram-setup"
+    echo "# TELEGRAM_BOT_TOKEN="
+    echo "# TELEGRAM_BOT_USERNAME=YourBot"
+    echo "# TELEGRAM_WEBHOOK_SECRET="
+    echo "# TELEGRAM_WEBHOOK_URL="
+    echo "# TELEGRAM_ALLOWED_CHANNELS="
+  } >>"$secrets"
+  chmod 600 "$secrets" 2>/dev/null || true
+  echo "Appended Telegram placeholders to secrets.env"
 }
 
 # IdentyClaw helper mounts (Passport JSON + cached JWTs).

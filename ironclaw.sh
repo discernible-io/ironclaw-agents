@@ -14,6 +14,7 @@
 #   status               Podman ps + health probe
 #   logs [reborn|nginx|identyclaw]  Follow container logs (default: reborn)
 #   token                Print IRONCLAW_REBORN_WEBUI_TOKEN from secrets.env
+#   telegram-setup       Install Telegram + apply TELEGRAM_* from secrets.env
 #   chat | url           Print WebUI HTTPS URL + token (browser chat; not Identyclaw TUI)
 #   env                  Print rebuild-safe app-dir env summary (no secret values)
 #   exec <cmd…>          Run a host command with secrets.env loaded + host Reborn home
@@ -28,7 +29,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$ROOT/scripts/lib-podman.sh"
 
 usage() {
-  sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -61,6 +62,7 @@ cmd_init() {
   fi
 
   chmod 600 "$secrets" 2>/dev/null || true
+  ironclaw_ensure_telegram_env_template
   echo "Next: edit secrets, then ./ironclaw.sh generate-certs && ./ironclaw.sh build-image && ./ironclaw.sh start"
 }
 
@@ -299,6 +301,65 @@ cmd_token() {
   printf '%s\n' "${IRONCLAW_REBORN_WEBUI_TOKEN:-}"
 }
 
+_ironclaw_upsert_secrets_var() {
+  local secrets="$1" key="$2" value="$3" tmp
+  tmp="$(mktemp)"
+  if grep -qE "^[[:space:]]*#?[[:space:]]*${key}=" "$secrets"; then
+    sed -E "s|^[[:space:]]*#?[[:space:]]*${key}=.*|${key}=${value}|" "$secrets" >"$tmp"
+  else
+    cat "$secrets" >"$tmp"
+    printf '\n%s=%s\n' "$key" "$value" >>"$tmp"
+  fi
+  mv "$tmp" "$secrets"
+  chmod 600 "$secrets"
+}
+
+cmd_telegram_setup() {
+  local secrets bot_token username webhook_secret webhook_url
+  secrets="$(ironclaw_app_dir)/secrets/secrets.env"
+  [[ -f "$secrets" ]] || { echo "Missing $secrets — run ./ironclaw.sh init first" >&2; exit 1; }
+  ironclaw_load_secrets
+  ironclaw_ensure_telegram_env_template
+  # Re-load in case the template was just appended (placeholders only).
+  ironclaw_load_secrets
+
+  bot_token="${TELEGRAM_BOT_TOKEN:-${IRONCLAW_REBORN_TELEGRAM_BOT_TOKEN:-}}"
+  username="${TELEGRAM_BOT_USERNAME:-${IRONCLAW_REBORN_TELEGRAM_BOT_USERNAME:-}}"
+  username="${username#@}"
+  if [[ -z "$bot_token" || -z "$username" ]]; then
+    echo "Set TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_USERNAME in $secrets" >&2
+    if grep -qE '^[[:space:]]*#[[:space:]]*TELEGRAM_BOT_(TOKEN|USERNAME)=.+' "$secrets"; then
+      echo "Those keys look filled in but still commented out — remove the leading #." >&2
+    fi
+    echo "Then re-run: ./ironclaw.sh telegram-setup" >&2
+    echo "Do not put the bot token in config.toml — [telegram] is retired." >&2
+    exit 1
+  fi
+
+  webhook_secret="${TELEGRAM_WEBHOOK_SECRET:-${IRONCLAW_REBORN_TELEGRAM_WEBHOOK_SECRET:-}}"
+  if [[ -z "$webhook_secret" ]]; then
+    webhook_secret="$(openssl rand -hex 32)"
+    _ironclaw_upsert_secrets_var "$secrets" TELEGRAM_WEBHOOK_SECRET "$webhook_secret"
+    export TELEGRAM_WEBHOOK_SECRET="$webhook_secret"
+    echo "Generated TELEGRAM_WEBHOOK_SECRET and wrote it to secrets.env"
+  fi
+
+  webhook_url="${TELEGRAM_WEBHOOK_URL:-${IRONCLAW_REBORN_TELEGRAM_WEBHOOK_URL:-}}"
+  if [[ -z "$webhook_url" ]]; then
+    webhook_url="${IRONCLAW_REBORN_WEBUI_BASE_URL%/}/webhooks/extensions/telegram/updates"
+    export TELEGRAM_WEBHOOK_URL="$webhook_url"
+  fi
+
+  command -v python3 >/dev/null 2>&1 || {
+    echo "python3 is required for telegram-setup" >&2
+    exit 1
+  }
+  echo "==> Applying Telegram admin configuration via WebUI operator API"
+  python3 "$ROOT/scripts/apply-telegram-admin-config.py"
+  echo "Telegram bot is configured. Pair your account from WebUI Extensions → Telegram"
+  echo "(mint a code, then open the link or send it to the bot). There is no CLI approve step."
+}
+
 cmd_chat() {
   local domain port url token
   [[ -f "$(ironclaw_app_dir)/secrets/secrets.env" ]] || {
@@ -425,6 +486,7 @@ main() {
     status) cmd_status "$@" ;;
     logs) cmd_logs "$@" ;;
     token) cmd_token "$@" ;;
+    telegram-setup) cmd_telegram_setup "$@" ;;
     chat|url) cmd_chat "$@" ;;
     env) cmd_env "$@" ;;
     exec) cmd_exec "$@" ;;

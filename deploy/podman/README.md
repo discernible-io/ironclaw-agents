@@ -24,8 +24,12 @@ Matches the shared host layout in [`../docs/docs/cicd-deployment-standard.md`](.
 
 | Tier | Hostname | Port |
 |------|----------|------|
-| `development` | `ironclaw.dihola.io` | `5443` |
-| `main` | `ironclaw.discernible.io` | `9443` |
+| `development` | `ironclaw.dihola.io` | `8443` |
+| `main` | `ironclaw.discernible.io` | `8443` |
+
+Both tiers publish **8443** because Telegram Bot API webhooks only accept
+`443`, `80`, `88`, or `8443`. Override with `IRONCLAW_APP_PORT` only if you
+do not need Telegram inbound.
 
 Profile: `local-dev` (LocalHost shell in the Reborn container — required for
 `himalaya` / `idcp` CLI skills). Reborn listens on `127.0.0.1:3000` inside the
@@ -62,8 +66,8 @@ chmod +x ironclaw.sh scripts/*.sh
 Health (from this host):
 
 ```bash
-curl -sk --resolve ironclaw.dihola.io:5443:127.0.0.1 \
-  https://ironclaw.dihola.io:5443/api/health
+curl -sk --resolve ironclaw.dihola.io:8443:127.0.0.1 \
+  https://ironclaw.dihola.io:8443/api/health
 ```
 
 WebUI: open the HTTPS URL and authenticate with the bearer token from
@@ -81,6 +85,7 @@ WebUI: open the HTTPS URL and authenticate with the bearer token from
 | `./ironclaw.sh status` | Podman + health probe |
 | `./ironclaw.sh logs [reborn\|nginx]` | Follow logs |
 | `./ironclaw.sh token` | Print WebUI token |
+| `./ironclaw.sh telegram-setup` | Install Telegram and apply `TELEGRAM_*` from `secrets.env` |
 | `./ironclaw.sh idcp-init` | NEAR creds layout + host helper npm deps |
 | `./ironclaw.sh idcp …` | enroll / ensure_session / me / create_hola / verify_hola / … |
 | `./ironclaw.sh create-github-fork` | Create `discernible-io/ironclaw-idc` via `gh` |
@@ -144,7 +149,17 @@ Edit `~/ironclaw-app/secrets/secrets.env` before first start:
 - `IRONCLAW_PUBLIC_HOST` / `IRONCLAW_APP_PORT` / `IRONCLAW_REBORN_WEBUI_BASE_URL` — must match the HTTPS URL clients use
 - `IRONCLAW_REBORN_PROFILE=local-dev` — enables `builtin.shell` for himalaya/idcp
 - Optional SSO / Slack vars — see template comments
+- Telegram: `TELEGRAM_BOT_TOKEN` + `TELEGRAM_BOT_USERNAME` in `secrets.env`, then `./ironclaw.sh telegram-setup` (do **not** use `[telegram]` in `config.toml` — that section is retired)
 - IdentyClaw: `IDENTYCLAW_BASE_URL`, Passport JSON under `secrets/near-credentials/`
+
+## Telegram
+
+Bot credentials live in `secrets.env`, not `config.toml`. After the pod is healthy:
+
+1. Set `TELEGRAM_BOT_TOKEN` (from BotFather) and `TELEGRAM_BOT_USERNAME` in `~/ironclaw-app/secrets/secrets.env`.
+2. Run `./ironclaw.sh telegram-setup`. That installs the Telegram extension, writes operator admin configuration, and registers `https://<host>:8443/webhooks/extensions/telegram/updates`. A webhook secret is generated into `secrets.env` if you leave it blank. The public port must stay on Telegram's allowed set (`443`, `80`, `88`, `8443`).
+
+Pairing is still per-person in the WebUI (Extensions → Telegram pairing panel). The setup command only configures the bot.
 
 ## Himalaya / Migadu mail
 
