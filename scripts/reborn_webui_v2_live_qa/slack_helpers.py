@@ -38,7 +38,7 @@ from scripts.reborn_webui_v2_live_qa.root_filesystem import (
 # scripts/ci/lib/crate_tree.py) to its sibling `packages/` directory — the same
 # anchor scripts/build-wasm-extensions.sh and scripts/live-canary/scrub-artifacts.sh
 # use — rather than a literal `crates/extensions/packages/slack` path. See
-# docs/reborn/target-architecture/CHECKLIST.md WS10.
+# docs/internal/reborn/target-architecture/CHECKLIST.md WS10.
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[2] / "scripts" / "ci" / "lib")
 )
@@ -78,6 +78,15 @@ def _slack_extension_manifest_path() -> Path:
 # never silently skip. Today no default-wired case hard-requires it; the bot
 # token is actor B wherever a bot can act.
 SLACK_SECOND_USER_TOKEN_ENV = "AUTH_LIVE_SLACK_SECOND_USER_TOKEN"
+# The seeded account's STORED grant, kept in lockstep with the slack
+# manifest's [[tools.credentials]] scope union
+# (crates/extensions/packages/slack/manifest.toml). Runtime account selection
+# requires the stored grant to carry every tool's manifest scopes, so a
+# stale list here parks slack activation on the auth gate and the connect
+# cases never reach installation_state=active (exactly what turned QA lanes
+# red when the eight new standard ops widened the union). The LIVE canary
+# Slack app must also grant the write additions to its user token for the
+# reaction/DM ops to succeed vendor-side.
 SLACK_PERSONAL_OAUTH_SCOPES = [
     "search:read",
     "channels:history",
@@ -90,6 +99,9 @@ SLACK_PERSONAL_OAUTH_SCOPES = [
     "mpim:read",
     "users:read",
     "chat:write",
+    "reactions:read",
+    "reactions:write",
+    "im:write",
 ]
 SIGNED_SLACK_EVENT_CASES = {
     "qa_5d_slack_strategy_doc_answer",
@@ -526,17 +538,10 @@ def _slack_setup_payload(
         "bot_user_id",
         "REBORN_WEBUI_V2_LIVE_QA_SLACK_BOT_USER_ID",
     )
-    # Shared-channel admission (run-acts-as-invoker): there is no subject user
-    # or subject route any more. `slack_allowed_channels` is the sole shared
-    # admission surface — a JSON array of channel ids — and the bot answers
-    # each participant in an allowed channel as themselves.
-    resolved_allowed_channels = _slack_setup_field(
-        setup,
-        config_text,
-        "allowed_channels",
-        "REBORN_WEBUI_V2_LIVE_QA_SLACK_ALLOWED_CHANNELS",
-        default="[]",
-    )
+    # Shared-channel admission (run-acts-as-invoker): there is no subject
+    # user, subject route, or channel allowlist any more. Admission is
+    # presence-based — adding the bot to a channel is what enables it — and
+    # the bot answers each paired participant as themselves.
     required = {
         "installation_id": preflight.get("installation_id"),
         "team_id": preflight.get("team_id"),
@@ -557,7 +562,6 @@ def _slack_setup_payload(
         "bot_token": bot_token,
         "signing_secret": signing_secret,
         "bot_user_id": str(required["bot_user_id"]),
-        "allowed_channels": str(resolved_allowed_channels or "[]"),
         "oauth_client_id": str(required["oauth_client_id"]),
         "oauth_client_secret": required["oauth_client_secret"],
     }

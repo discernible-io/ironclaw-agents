@@ -18,7 +18,7 @@ import httpx
 import pytest
 from playwright.async_api import expect
 
-from helpers import REBORN_V2_AUTH_TOKEN, sse_stream, wait_for_sse_line
+from helpers import REBORN_V2_AUTH_TOKEN, SEL_V2, sse_stream, wait_for_sse_line
 from reborn_webui_harness import (
     DEFAULT_PROFILE,
     YOLO_PROFILE,
@@ -32,6 +32,7 @@ from reborn_webui_harness import (
     send_message,
     start_reborn_webui_v2_server,
     wait_for_assistant_message,
+    session_channel_extension_id,
 )
 
 
@@ -360,14 +361,15 @@ async def test_reborn_v2_tool_turn_records_result_and_final_reply(
             f"{reborn_v2_yolo_server}/chat/{thread_id}"
             f"?debug=true&token={REBORN_V2_AUTH_TOKEN}"
         )
-        await page.locator("[data-testid='inspector-tab-activity']").click()
+        await page.locator(SEL_V2["inspector_tab_activity"]).click()
         tool_entry = page.locator("[data-activity-kind='tool_completed']").first
         await expect(tool_entry).to_be_visible(timeout=30000)
         await tool_entry.get_by_role("button", name="Show details").click()
         detail = tool_entry.locator("[data-testid^='inspector-tool-detail-']")
         await expect(detail).to_be_visible(timeout=15000)
         await expect(detail).to_contain_text("builtin.echo")
-        await expect(detail).to_contain_text("succeeded")
+        # The finite status set is localized, not the raw wire value.
+        await expect(detail).to_contain_text("Succeeded")
         arguments = detail.get_by_text("Arguments", exact=True).locator("..").locator("pre")
         await expect(arguments).to_contain_text(marker)
         await expect(detail.get_by_text("Duration:")).to_have_count(1)
@@ -404,9 +406,10 @@ async def test_reborn_v2_cancel_in_flight_turn_ends_cancelled(
         ) as stream:
             assert stream.status == 200
             submitted = await client.post(
-                f"{reborn_v2_server}/api/webchat/v2/threads/{thread_id}/messages",
+                f"{reborn_v2_server}/api/webchat/v2/channels/{await session_channel_extension_id(client, reborn_v2_server)}/messages",
                 json={
                     "client_action_id": client_action_id(),
+                    "thread_id": thread_id,
                     "content": f"{marker}: hold this response",
                 },
                 timeout=30,
@@ -472,9 +475,10 @@ async def test_reborn_v2_approval_gate_resolves_and_resumes(
         ) as stream:
             assert stream.status == 200
             submitted = await client.post(
-                f"{base_url}/api/webchat/v2/threads/{thread_id}/messages",
+                f"{base_url}/api/webchat/v2/channels/{await session_channel_extension_id(client, base_url)}/messages",
                 json={
                     "client_action_id": client_action_id(),
+                    "thread_id": thread_id,
                     "content": f"reborn builtin echo {marker}",
                 },
                 timeout=30,
@@ -527,9 +531,10 @@ async def test_reborn_v2_approval_gate_decline_has_no_successful_tool_result(
         ) as stream:
             assert stream.status == 200
             submitted = await client.post(
-                f"{base_url}/api/webchat/v2/threads/{thread_id}/messages",
+                f"{base_url}/api/webchat/v2/channels/{await session_channel_extension_id(client, base_url)}/messages",
                 json={
                     "client_action_id": client_action_id(),
+                    "thread_id": thread_id,
                     "content": f"reborn builtin echo {marker}",
                 },
                 timeout=30,
@@ -605,9 +610,10 @@ async def test_reborn_v2_manual_token_auth_gate_resolves_and_resumes(
         ) as stream:
             assert stream.status == 200
             submitted = await client.post(
-                f"{reborn_v2_yolo_server}/api/webchat/v2/threads/{thread_id}/messages",
+                f"{reborn_v2_yolo_server}/api/webchat/v2/channels/{await session_channel_extension_id(client, reborn_v2_yolo_server)}/messages",
                 json={
                     "client_action_id": client_action_id(),
+                    "thread_id": thread_id,
                     "content": "reborn install github for auth gate",
                 },
                 timeout=30,

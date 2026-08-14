@@ -2587,6 +2587,23 @@ class RebornWebUiV2LiveQaRunnerTests(unittest.TestCase):
         self.assertLess(auth_index, chat_index)
         self.assertLess(chat_index, submit_index)
 
+    def test_submission_route_matches_channel_and_thread_message_posts(self):
+        """The composer posts to the session channel route since the channel
+        normalization split (#7477); the retired thread-scoped route stays
+        accepted so one harness spans binaries on either side (QA 10 went
+        0/10 when the predicate knew only the retired route)."""
+        pattern = run_live_qa.SUBMISSION_MESSAGE_ROUTE_RE
+        base = "http://127.0.0.1:5000/api/webchat/v2"
+        self.assertIsNotNone(pattern.search(f"{base}/channels/web-app/messages"))
+        self.assertIsNotNone(
+            pattern.search(f"{base}/threads/6f9e2f34-1c2d-5abc-9def-0123456789ab/messages")
+        )
+        self.assertIsNone(pattern.search(f"{base}/channels/web-app/messages/123"))
+        self.assertIsNone(pattern.search(f"{base}/channels/messages"))
+        self.assertIsNone(
+            pattern.search(f"{base}/threads/6f9e2f34/messages?replay=1")
+        )
+
     def test_submission_capture_retries_once_after_no_post_and_connect_dismissal(self):
         submitted = {
             "outcome": "submitted",
@@ -5650,7 +5667,6 @@ class RebornWebUiV2LiveQaRunnerTests(unittest.TestCase):
                     "team_id": "T123",
                     "api_app_id": "A123",
                     "oauth_client_id": "persisted-client-id",
-                    "allowed_channels": '["C0SHARED"]',
                 },
             )
             payload, preflight = run_live_qa._slack_setup_payload(
@@ -5667,11 +5683,26 @@ class RebornWebUiV2LiveQaRunnerTests(unittest.TestCase):
         self.assertIsNotNone(payload)
         self.assertEqual(payload.get("oauth_client_id"), "persisted-client-id")
         self.assertEqual(payload.get("bot_user_id"), "U-BOT")
-        # run-acts-as-invoker: no shared_subject_user_id / subject_routes keys;
-        # the persisted allowed-channel admission list rides through.
+        # run-acts-as-invoker: no shared_subject_user_id / subject_routes
+        # keys, and no channel-allowlist key either — shared-channel
+        # admission is presence-based, so no admission config rides through.
+        # The exact key set pins that nothing beyond deployment identity and
+        # credentials is submitted.
         self.assertNotIn("shared_subject_user_id", payload)
         self.assertNotIn("subject_routes", payload)
-        self.assertEqual(payload.get("allowed_channels"), '["C0SHARED"]')
+        self.assertEqual(
+            sorted(payload),
+            [
+                "api_app_id",
+                "bot_token",
+                "bot_user_id",
+                "installation_id",
+                "oauth_client_id",
+                "oauth_client_secret",
+                "signing_secret",
+                "team_id",
+            ],
+        )
         self.assertTrue(preflight["personal_oauth_ready"])
 
     def test_slack_setup_payload_prefers_env_oauth_client_id(self):
@@ -5704,8 +5735,6 @@ class RebornWebUiV2LiveQaRunnerTests(unittest.TestCase):
         self.assertIsNotNone(payload)
         self.assertEqual(payload.get("oauth_client_id"), "fresh-client-id")
         self.assertEqual(preflight["oauth_client_id"], "fresh-client-id")
-        # No admission list configured anywhere -> the empty JSON array default.
-        self.assertEqual(payload.get("allowed_channels"), "[]")
         self.assertTrue(preflight["personal_oauth_ready"])
 
     def test_slack_setup_payload_requires_oauth_client_material(self):
@@ -5922,7 +5951,6 @@ class RebornWebUiV2LiveQaRunnerTests(unittest.TestCase):
                 {"name": "slack_api_app_id"},
                 {"name": "slack_bot_user_id"},
                 {"name": "slack_oauth_client_id"},
-                {"name": "slack_allowed_channels"},
             ],
         }
 
@@ -5997,7 +6025,6 @@ class RebornWebUiV2LiveQaRunnerTests(unittest.TestCase):
                             "signing_secret": "signing-secret-value",
                             "oauth_client_id": "oauth-client-id",
                             "oauth_client_secret": "oauth-client-secret-value",
-                            "allowed_channels": "[]",
                         },
                         {},
                     ),
@@ -6037,7 +6064,6 @@ class RebornWebUiV2LiveQaRunnerTests(unittest.TestCase):
                                 "slack_api_app_id": "A123",
                                 "slack_bot_user_id": "U-BOT",
                                 "slack_oauth_client_id": "oauth-client-id",
-                                "slack_allowed_channels": "[]",
                             },
                         },
                     },
@@ -6061,7 +6087,6 @@ class RebornWebUiV2LiveQaRunnerTests(unittest.TestCase):
         self.assertEqual(
             result["request"]["field_handles"],
             [
-                "slack_allowed_channels",
                 "slack_api_app_id",
                 "slack_bot_user_id",
                 "slack_installation_id",
@@ -9646,6 +9671,11 @@ class RebornWebUiV2LiveQaRunnerTests(unittest.TestCase):
                     {
                         "model_call_count": 1,
                         "tool_call_count": 0,
+                        "tool_call_batch_count": 0,
+                        "multi_tool_call_batch_count": 0,
+                        "tool_calls_in_multi_batches": 0,
+                        "max_tool_call_batch_width": 0,
+                        "tool_call_batch_width_counts": {},
                         "input_tokens": 10,
                         "output_tokens": 2,
                         "cache_read_tokens": 4,
@@ -9707,6 +9737,11 @@ class RebornWebUiV2LiveQaRunnerTests(unittest.TestCase):
             {
                 "model_call_count": 2,
                 "tool_call_count": 2,
+                "tool_call_batch_count": 1,
+                "multi_tool_call_batch_count": 1,
+                "tool_calls_in_multi_batches": 2,
+                "max_tool_call_batch_width": 2,
+                "tool_call_batch_width_counts": {"2": 1},
                 "input_tokens": 180,
                 "output_tokens": 35,
                 "cache_read_tokens": 70,
@@ -9743,6 +9778,11 @@ class RebornWebUiV2LiveQaRunnerTests(unittest.TestCase):
 
         self.assertEqual(metrics["model_call_count"], 1)
         self.assertEqual(metrics["tool_call_count"], 0)
+        self.assertEqual(metrics["tool_call_batch_count"], 0)
+        self.assertEqual(metrics["multi_tool_call_batch_count"], 0)
+        self.assertEqual(metrics["tool_calls_in_multi_batches"], 0)
+        self.assertEqual(metrics["max_tool_call_batch_width"], 0)
+        self.assertEqual(metrics["tool_call_batch_width_counts"], {})
         self.assertEqual(metrics["input_tokens"], 12)
         self.assertEqual(metrics["output_tokens"], 3)
         self.assertIsNone(metrics["cache_read_tokens"])
@@ -9813,6 +9853,11 @@ class RebornWebUiV2LiveQaRunnerTests(unittest.TestCase):
             {
                 "model_call_count": None,
                 "tool_call_count": None,
+                "tool_call_batch_count": None,
+                "multi_tool_call_batch_count": None,
+                "tool_calls_in_multi_batches": None,
+                "max_tool_call_batch_width": None,
+                "tool_call_batch_width_counts": None,
                 "input_tokens": None,
                 "output_tokens": None,
                 "cache_read_tokens": None,

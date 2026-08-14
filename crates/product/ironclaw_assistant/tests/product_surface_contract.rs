@@ -871,6 +871,9 @@ fn fake_binding() -> ResolvedBinding {
         thread_id: ThreadId::new("thread:fake").expect("valid thread"),
         agent_id: Some(AgentId::new("agent:fake").expect("valid agent")),
         project_id: None,
+        source_binding_ref: SourceBindingRef::new("source:fake").expect("valid source ref"),
+        reply_target_binding_ref: ReplyTargetBindingRef::new("reply:fake")
+            .expect("valid reply ref"),
     }
 }
 
@@ -917,6 +920,7 @@ impl ReplayCountingInboundTurnService {
             .expect("valid accepted message ref"),
             submitted_run_id: TurnRunId::new(),
             binding: fake_binding(),
+            submission: None,
         })
     }
 }
@@ -950,7 +954,7 @@ impl InboundTurnService for ReplayCountingInboundTurnService {
         before_inbound_policy: &dyn BeforeInboundPolicy,
     ) -> Result<InboundUserMessageDispatch, ProductSurfaceFailure> {
         if let Some(outcome) = self.replay_accepted_user_message(envelope).await? {
-            return Ok(InboundUserMessageDispatch::Accepted(outcome));
+            return Ok(InboundUserMessageDispatch::Accepted(Box::new(outcome)));
         }
 
         let ProductInboundPayload::UserMessage(payload) = envelope.payload() else {
@@ -984,7 +988,7 @@ impl InboundTurnService for ReplayCountingInboundTurnService {
         };
 
         self.accept_fresh_user_message(envelope_for_turn)
-            .map(InboundUserMessageDispatch::Accepted)
+            .map(|outcome| InboundUserMessageDispatch::Accepted(Box::new(outcome)))
     }
 }
 
@@ -1376,7 +1380,10 @@ async fn auth_deny_from_threaded_direct_prompt_uses_base_direct_binding() {
         ),
     );
     let base_binding = binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&base_envelope))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&base_envelope)
+                .expect("verified envelope binding request"),
+        )
         .await
         .expect("seed base direct conversation binding");
     let gate_ref = TurnGateRef::new("gate:auth-direct-thread").expect("auth gate");
@@ -1747,6 +1754,8 @@ async fn scoped_approval_missing_gate_fallback_reuses_dispatcher_binding() {
         thread_id: ThreadId::new("thread:dm-topic").expect("thread"),
         agent_id: Some(AgentId::new("agent:fake").expect("agent")),
         project_id: None,
+        source_binding_ref: SourceBindingRef::new("source:dm-topic").expect("source ref"),
+        reply_target_binding_ref: ReplyTargetBindingRef::new("reply:dm-topic").expect("reply ref"),
     };
     let divergent_base_binding = ResolvedBinding {
         actor_user_id: UserId::new("user:someone-else").expect("actor"),
@@ -3034,6 +3043,7 @@ async fn before_inbound_policy_rewrite_revalidates_payload_before_turn_path() {
     let (workflow, inbound, ledger, policy) = build_workflow_with_policy();
     policy.rewrite_user_message(UserMessagePayload {
         requested_model: None,
+        channel_context: None,
         text: "a".repeat(64 * 1024 + 1),
         attachments: vec![],
         trigger: ProductTriggerReason::DirectChat,
@@ -3252,6 +3262,7 @@ async fn rejected_busy_is_settled_and_transport_retry_gets_duplicate() {
         accepted_message_ref: accepted_message_ref.clone(),
         active_run_id: Some(busy_run),
         binding: fake_binding(),
+        busy: None,
     });
     let envelope = sample_envelope("policy-busy-retry");
 
@@ -3473,11 +3484,13 @@ async fn fake_inbound_turn_service_replays_programmed_outcomes_in_order() {
             accepted_message_ref: AcceptedMessageRef::new("msg:first").expect("valid"),
             active_run_id: Some(first_run),
             binding: fake_binding(),
+            busy: None,
         },
         InboundTurnOutcome::Submitted {
             accepted_message_ref: AcceptedMessageRef::new("msg:second").expect("valid"),
             submitted_run_id: second_run,
             binding: fake_binding(),
+            submission: None,
         },
     ]);
 
@@ -4004,12 +4017,14 @@ async fn product_binding_reset_rotates_the_route_and_preserves_canonical_scope()
             Some("project:alpha"),
         )],
     );
-    let initial_request = ResolveBindingRequest::from_envelope(&sample_envelope("reset-initial"));
+    let initial_request = ResolveBindingRequest::from_envelope(&sample_envelope("reset-initial"))
+        .expect("verified envelope binding request");
     let initial = binding
         .resolve_binding(initial_request)
         .await
         .expect("initial binding");
-    let reset_request = ResolveBindingRequest::from_envelope(&sample_envelope("reset-command"));
+    let reset_request = ResolveBindingRequest::from_envelope(&sample_envelope("reset-command"))
+        .expect("verified envelope binding request");
 
     let reset = binding
         .reset_binding(ResetBindingRequest {
@@ -4142,9 +4157,10 @@ async fn actor_user_resolver_rewrites_pairing_after_explicit_unpair() {
     );
 
     binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&sample_envelope(
-            "resolver-before-unpair",
-        )))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&sample_envelope("resolver-before-unpair"))
+                .expect("verified envelope binding request"),
+        )
         .await
         .expect("initial resolved actor binding");
     conversations
@@ -4157,9 +4173,10 @@ async fn actor_user_resolver_rewrites_pairing_after_explicit_unpair() {
         .await;
 
     binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&sample_envelope(
-            "resolver-after-unpair",
-        )))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&sample_envelope("resolver-after-unpair"))
+                .expect("verified envelope binding request"),
+        )
         .await
         .expect("same-process reconnect should rewrite the resolved actor pairing");
 }
@@ -4289,9 +4306,12 @@ async fn actor_user_resolver_revalidation_cannot_unpair_a_newer_generation() {
         product_binding_service_with_actor_user_resolver_arc(conversations.clone(), actor_resolver);
 
     binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&sample_envelope(
-            "resolver-replaced-mid-resolution",
-        )))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&sample_envelope(
+                "resolver-replaced-mid-resolution",
+            ))
+            .expect("verified envelope binding request"),
+        )
         .await
         .expect_err("a generation change during resolution must reject the stale turn");
 
@@ -4362,9 +4382,10 @@ async fn lookup_binding_with_actor_user_resolver_uses_existing_pairings_only() {
     );
 
     let err = binding
-        .lookup_binding(ResolveBindingRequest::from_envelope(&sample_envelope(
-            "lookup-resolver-missing-actor",
-        )))
+        .lookup_binding(
+            ResolveBindingRequest::from_envelope(&sample_envelope("lookup-resolver-missing-actor"))
+                .expect("verified envelope binding request"),
+        )
         .await
         .expect_err("lookup must require an existing durable actor pairing");
 
@@ -4387,9 +4408,10 @@ async fn lookup_binding_with_actor_user_resolver_ignores_resolver_failures_befor
     );
 
     let err = binding
-        .lookup_binding(ResolveBindingRequest::from_envelope(&sample_envelope(
-            "lookup-resolver-error",
-        )))
+        .lookup_binding(
+            ResolveBindingRequest::from_envelope(&sample_envelope("lookup-resolver-error"))
+                .expect("verified envelope binding request"),
+        )
         .await
         .expect_err("missing durable pairing fails before resolver revalidation");
 
@@ -4423,7 +4445,10 @@ async fn lookup_binding_with_actor_user_resolver_rejects_a_stale_actor_pairing()
     );
     let envelope = sample_envelope("lookup-resolver-mismatch");
     seed_binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&envelope))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&envelope)
+                .expect("verified envelope binding request"),
+        )
         .await
         .expect("seed canonical conversation binding");
     let (binding, actor_resolver) = product_binding_service_with_actor_user_resolver(
@@ -4435,7 +4460,10 @@ async fn lookup_binding_with_actor_user_resolver_rejects_a_stale_actor_pairing()
     );
 
     let error = binding
-        .lookup_binding(ResolveBindingRequest::from_envelope(&envelope))
+        .lookup_binding(
+            ResolveBindingRequest::from_envelope(&envelope)
+                .expect("verified envelope binding request"),
+        )
         .await
         .expect_err("lookup must reject a durable pairing that no longer matches the resolver");
 
@@ -4444,6 +4472,123 @@ async fn lookup_binding_with_actor_user_resolver_rejects_a_stale_actor_pairing()
         error,
         ProductOperationFailure::BindingAccessDenied
     ));
+}
+
+#[tokio::test]
+async fn resolve_binding_after_actor_reassignment_creates_a_fresh_direct_thread() {
+    let conversations = Arc::new(InMemoryConversationServices::default());
+    let resolver = Arc::new(MutableProductActorUserResolver::new(Some(
+        ResolvedProductActorUser::new(UserId::new("user:alice").expect("user")),
+    )));
+    let binding =
+        product_binding_service_with_actor_user_resolver_arc(conversations, resolver.clone());
+    let first = binding
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&sample_envelope("direct-owner-alice"))
+                .expect("verified envelope binding request"),
+        )
+        .await
+        .expect("first owner resolves");
+
+    resolver.set(Some(ResolvedProductActorUser::new(
+        UserId::new("user:bob").expect("user"),
+    )));
+    let rebound = binding
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&sample_envelope("direct-owner-bob"))
+                .expect("verified envelope binding request"),
+        )
+        .await
+        .expect("newly authorized owner resolves without inheriting the old route");
+
+    assert_eq!(rebound.actor_user_id.as_str(), "user:bob");
+    assert_ne!(
+        rebound.thread_id, first.thread_id,
+        "a reassigned actor must receive a fresh direct thread"
+    );
+}
+
+#[tokio::test]
+async fn resolve_binding_repairs_a_stale_direct_route_for_the_current_actor() {
+    let conversations = Arc::new(InMemoryConversationServices::default());
+    let actor_ref = ExternalActorRef::new("test", "user1", None::<String>).expect("actor");
+    let user_id = UserId::new("user:alice").expect("user");
+    conversations
+        .pair_external_actor(
+            TenantId::new("tenant:alpha").expect("tenant"),
+            ironclaw_conversations::AdapterKind::new("test_adapter").expect("adapter"),
+            ironclaw_conversations::AdapterInstallationId::new("install_alpha")
+                .expect("installation"),
+            actor_ref.clone(),
+            user_id.clone(),
+        )
+        .await;
+    let envelope = sample_envelope("stale-direct-route");
+    let request =
+        ResolveBindingRequest::from_envelope(&envelope).expect("verified envelope binding request");
+    let old = ConversationBindingPort::resolve_or_create_binding_with_trusted_scope(
+        conversations.as_ref(),
+        ironclaw_conversations::ResolveConversationRequest {
+            tenant_id: TenantId::new("tenant:alpha").expect("tenant"),
+            adapter_kind: ironclaw_conversations::AdapterKind::new("test_adapter")
+                .expect("adapter"),
+            adapter_installation_id: ironclaw_conversations::AdapterInstallationId::new(
+                "install_alpha",
+            )
+            .expect("installation"),
+            external_actor_ref: actor_ref.clone(),
+            external_conversation_ref: envelope.external_conversation_ref().clone(),
+            external_event_id: ironclaw_conversations::ExternalEventId::new(
+                "evt:seed-stale-direct-route",
+            )
+            .expect("event"),
+            route_kind: ironclaw_conversations::ConversationRouteKind::Direct,
+            requested_agent_id: None,
+            requested_project_id: None,
+        },
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("seed the pre-existing direct route");
+
+    let conversation_port: Arc<dyn ironclaw_conversations::ConversationBindingService> = Arc::new(
+        AccessDeniedOnceConversationBindingService::new(conversations.clone()),
+    );
+    let actor_pairings: Arc<dyn ironclaw_conversations::ConversationActorPairingService> =
+        conversations;
+    let actor_resolver = Arc::new(RecordingProductActorUserResolver::new([(
+        actor_ref.clone(),
+        user_id.clone(),
+    )]));
+    let scope = ProductInstallationScope::with_default_scope(
+        TenantId::new("tenant:alpha").expect("tenant"),
+        AgentId::new("agent:alpha").expect("agent"),
+        Some(ProjectId::new("project:alpha").expect("project")),
+    )
+    .with_actor_user_resolver(actor_resolver, actor_pairings);
+    let binding = ProductConversationBindingService::new(
+        conversation_port,
+        StaticProductInstallationResolver::new([(
+            ProductInstallationKey::new(
+                ProductAdapterId::new("test_adapter").expect("adapter"),
+                AdapterInstallationId::new("install_alpha").expect("installation"),
+            ),
+            scope,
+        )]),
+    );
+
+    let repaired = binding
+        .resolve_binding(request)
+        .await
+        .expect("a current actor should recover from a stale direct route");
+
+    assert_eq!(repaired.actor_user_id, user_id);
+    assert_ne!(
+        repaired.thread_id, old.turn_scope.thread_id,
+        "repair must revoke the inaccessible direct route and mint a fresh thread"
+    );
 }
 
 #[tokio::test]
@@ -4458,7 +4603,8 @@ async fn lookup_binding_rechecks_direct_actor_revocation_after_the_route_was_cre
     let binding =
         product_binding_service_with_actor_user_resolver_arc(conversations, resolver.clone());
     let envelope = sample_envelope("direct-route-revoked");
-    let request = ResolveBindingRequest::from_envelope(&envelope);
+    let request =
+        ResolveBindingRequest::from_envelope(&envelope).expect("verified envelope binding request");
     binding
         .resolve_binding(request.clone())
         .await
@@ -4490,7 +4636,8 @@ async fn lookup_binding_rechecks_direct_actor_revocation_when_the_epoch_changes(
     let binding =
         product_binding_service_with_actor_user_resolver_arc(conversations, resolver.clone());
     let envelope = sample_envelope("direct-route-new-generation");
-    let request = ResolveBindingRequest::from_envelope(&envelope);
+    let request =
+        ResolveBindingRequest::from_envelope(&envelope).expect("verified envelope binding request");
     binding
         .resolve_binding(request.clone())
         .await
@@ -4577,116 +4724,16 @@ async fn concrete_product_surface_accepts_user_message_for_trusted_installation(
     assert_eq!(submissions[0].actor.user_id.as_str(), "user:alice");
 }
 
-#[tokio::test]
-async fn concrete_product_surface_shared_route_binds_one_thread_per_actor() {
-    let tenant_id = TenantId::new("tenant:alpha").expect("tenant");
-    let adapter_kind = ironclaw_conversations::AdapterKind::new("test_adapter").expect("adapter");
-    let installation_id =
-        ironclaw_conversations::AdapterInstallationId::new("install_alpha").expect("install");
-    let conversations = Arc::new(InMemoryConversationServices::default());
-    conversations
-        .pair_external_actor(
-            tenant_id.clone(),
-            adapter_kind.clone(),
-            installation_id.clone(),
-            ExternalActorRef::new("test", "user1", None::<String>).expect("actor"),
-            UserId::new("user:alice").expect("user"),
-        )
-        .await;
-    conversations
-        .pair_external_actor(
-            tenant_id.clone(),
-            adapter_kind,
-            installation_id,
-            ExternalActorRef::new("test", "user2", None::<String>).expect("actor"),
-            UserId::new("user:bob").expect("user"),
-        )
-        .await;
-    let binding = product_binding_service(
-        conversations.clone(),
-        vec![(
-            "test_adapter",
-            "install_alpha",
-            "tenant:alpha",
-            "agent:alpha",
-            Some("project:alpha"),
-        )],
-    );
-    let coordinator = Arc::new(RecordingTurnCoordinator::default());
-    let inbound = Arc::new(DefaultInboundTurnService::new(
-        binding.clone(),
-        InMemorySessionThreadService::default(),
-        coordinator.clone(),
-        Arc::new(RejectingInputEnqueue),
-    ));
-    let workflow = DefaultProductSurface::new(
-        inbound,
-        Arc::new(InMemoryIdempotencyLedger::new()),
-        Arc::new(binding),
-    );
-
-    // Pin changed with the run-acts-as-invoker ruling: a shared conversation
-    // binds ONE THREAD PER (conversation, actor) — each actor owns their own
-    // thread, and the retired shared team-subject thread is gone.
-    workflow
-        .submit_inbound(sample_envelope_with_payload(
-            "shared-alice",
-            ProductInboundPayload::UserMessage(
-                UserMessagePayload::new("hello shared", vec![], ProductTriggerReason::BotMention)
-                    .expect("message"),
-            ),
-        ))
-        .await
-        .expect("alice shared message accepted");
-
-    workflow
-        .submit_inbound(sample_envelope_with_context(
-            ProductAdapterId::new("test_adapter").expect("adapter"),
-            AdapterInstallationId::new("install_alpha").expect("install"),
-            ExternalEventId::new("evt:shared-bob").expect("event"),
-            ExternalActorRef::new("test", "user2", Option::<String>::None).expect("actor"),
-            ExternalConversationRef::new(None, "conv1", None, None).expect("conversation"),
-            ProductInboundPayload::UserMessage(
-                UserMessagePayload::new("hello from bob", vec![], ProductTriggerReason::BotMention)
-                    .expect("message"),
-            ),
-        ))
-        .await
-        .expect("second paired actor accepted in the same shared conversation");
-    workflow
-        .submit_inbound(sample_envelope_with_payload(
-            "shared-alice-again",
-            ProductInboundPayload::UserMessage(
-                UserMessagePayload::new("hello again", vec![], ProductTriggerReason::BotMention)
-                    .expect("message"),
-            ),
-        ))
-        .await
-        .expect("alice's second shared message accepted");
-
-    let submissions = coordinator.submissions();
-    assert_eq!(submissions.len(), 3);
-    assert_eq!(submissions[0].actor.user_id.as_str(), "user:alice");
-    assert_eq!(submissions[1].actor.user_id.as_str(), "user:bob");
-    assert_eq!(
-        submissions[0].scope.explicit_owner_user_id(),
-        Some(&UserId::new("user:alice").expect("actor")),
-        "alice's shared thread is owned by alice"
-    );
-    assert_eq!(
-        submissions[1].scope.explicit_owner_user_id(),
-        Some(&UserId::new("user:bob").expect("actor")),
-        "bob's shared thread is owned by bob"
-    );
-    assert_ne!(
-        submissions[0].scope.thread_id, submissions[1].scope.thread_id,
-        "two actors in one shared conversation get two distinct threads"
-    );
-    assert_eq!(
-        submissions[2].scope.thread_id, submissions[0].scope.thread_id,
-        "the same actor keeps resolving the same thread"
-    );
-}
+// Removed with ephemeral-per-ping:
+// `concrete_product_surface_shared_route_joins_one_conversation_thread` and
+// `legacy_operator_owned_shared_row_first_turn_submits_under_the_foreign_owner`
+// pinned the retired shared-thread-JOIN and foreign-owner-carry model at the
+// product-surface tier. There is no shared thread now — each ping resolves onto
+// its own pinger-owned ephemeral thread (owner == actor). Distinct pinger-owned
+// threads through the surface are pinned by
+// `shared_admission_gates_every_resolve_without_rebuilding_scope` and
+// `shared_lookup_verifies_membership_and_never_joins` below; per-event idempotent
+// threads at the conversations tier.
 
 #[tokio::test]
 async fn concrete_product_surface_persists_first_bind_default_scope() {
@@ -4889,7 +4936,10 @@ async fn shared_route_without_admission_resolver_is_not_connected() {
     );
 
     let error = binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&envelope))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&envelope)
+                .expect("verified envelope binding request"),
+        )
         .await
         .expect_err("a shared route with no admission resolver must fail closed");
 
@@ -4952,7 +5002,10 @@ async fn admitted_shared_route_resolves_as_the_actor() {
     );
 
     let resolved = binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&envelope))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&envelope)
+                .expect("verified envelope binding request"),
+        )
         .await
         .expect("admitted shared binding should resolve");
 
@@ -5016,7 +5069,10 @@ async fn admitted_shared_route_does_not_probe_existing_binding_before_resolve() 
     );
 
     let resolved = binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&envelope))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&envelope)
+                .expect("verified envelope binding request"),
+        )
         .await
         .expect("admitted shared binding should resolve");
 
@@ -5084,7 +5140,10 @@ async fn shared_admission_gates_every_resolve_without_rebuilding_scope() {
 
     // Not admitted yet: fail closed with the not-connected rejection.
     let error = binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&envelope))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&envelope)
+                .expect("verified envelope binding request"),
+        )
         .await
         .expect_err("an unadmitted shared conversation must fail closed");
     assert!(matches!(
@@ -5097,22 +5156,31 @@ async fn shared_admission_gates_every_resolve_without_rebuilding_scope() {
     // — and the admitted conversation resolves as the actor.
     admission.set_admitted();
     let resolved = binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&envelope))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&envelope)
+                .expect("verified envelope binding request"),
+        )
         .await
         .expect("shared binding should resolve after the conversation connects");
     assert_eq!(resolved.actor_user_id.as_str(), "user:alice");
 
-    // The same actor keeps resolving the same thread.
+    // Each admitted ping resolves its OWN ephemeral thread (per-event).
     let again = binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&shared_envelope(
-            "shared-admission-gate-2",
-            "hello existing shared thread",
-            "C-eng",
-            "msg-2",
-        )))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&shared_envelope(
+                "shared-admission-gate-2",
+                "hello existing shared thread",
+                "C-eng",
+                "msg-2",
+            ))
+            .expect("verified envelope binding request"),
+        )
         .await
         .expect("existing admitted binding keeps resolving");
-    assert_eq!(again.thread_id, resolved.thread_id);
+    assert_ne!(
+        again.thread_id, resolved.thread_id,
+        "each ping resolves its own ephemeral thread, not a reused one"
+    );
 
     // Reset is the THIRD admission checkpoint (resolve, lookup, reset): a
     // disconnected shared conversation must refuse the reset BEFORE any
@@ -5127,7 +5195,8 @@ async fn shared_admission_gates_every_resolve_without_rebuilding_scope() {
                 "/new",
                 "C-eng",
                 "msg-3",
-            )),
+            ))
+            .expect("verified envelope binding request"),
             expected_thread_id: again.thread_id.clone(),
         })
         .await
@@ -5138,33 +5207,41 @@ async fn shared_admission_gates_every_resolve_without_rebuilding_scope() {
             if reason.contains("not connected")
     ));
 
-    // And the failed reset rotated nothing: re-admitting resolves the same
-    // thread the actor already owned.
+    // And the denied reset wrote nothing: re-admitting, a later ping resolves
+    // cleanly as the actor. Under ephemeral-per-ping there is no reused shared
+    // thread for a bad reset to rotate — every ping mints its own — so the
+    // aftermath check is that the binding still resolves, not thread reuse.
     admission.set_admitted();
     let after_failed_reset = binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&shared_envelope(
-            "shared-admission-gate-3",
-            "still my thread",
-            "C-eng",
-            "msg-4",
-        )))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&shared_envelope(
+                "shared-admission-gate-3",
+                "still my thread",
+                "C-eng",
+                "msg-4",
+            ))
+            .expect("verified envelope binding request"),
+        )
         .await
         .expect("re-admitted conversation resolves");
-    assert_eq!(
+    assert_ne!(
         after_failed_reset.thread_id, again.thread_id,
-        "a denied reset must leave the binding on its original thread"
+        "each ping mints its own ephemeral thread"
     );
-    assert_eq!(again.actor_user_id.as_str(), "user:alice");
+    assert_eq!(after_failed_reset.actor_user_id.as_str(), "user:alice");
 
     // Event-route integrity survives the remodel: replaying an event id
     // against a DIFFERENT (also admitted) conversation is denied.
     let route_mismatch = binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&shared_envelope(
-            "shared-admission-gate-2",
-            "reused event id on a different shared route",
-            "C-ops",
-            "msg-2",
-        )))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&shared_envelope(
+                "shared-admission-gate-2",
+                "reused event id on a different shared route",
+                "C-ops",
+                "msg-2",
+            ))
+            .expect("verified envelope binding request"),
+        )
         .await
         .expect_err("existing shared binding must record the external event route");
     assert!(matches!(
@@ -5187,12 +5264,15 @@ async fn shared_admission_gates_every_resolve_without_rebuilding_scope() {
     // lookup both fail closed even though the thread already exists.
     admission.clear_admitted();
     let disconnected = binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&shared_envelope(
-            "shared-admission-gate-3",
-            "hello disconnected shared route",
-            "C-eng",
-            "msg-3",
-        )))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&shared_envelope(
+                "shared-admission-gate-3",
+                "hello disconnected shared route",
+                "C-eng",
+                "msg-3",
+            ))
+            .expect("verified envelope binding request"),
+        )
         .await
         .expect_err("a disconnected conversation must stop resolving immediately");
     assert!(matches!(
@@ -5201,12 +5281,15 @@ async fn shared_admission_gates_every_resolve_without_rebuilding_scope() {
             if reason.contains("not connected")
     ));
     let disconnected_lookup = binding
-        .lookup_binding(ResolveBindingRequest::from_envelope(&shared_envelope(
-            "shared-admission-gate-4",
-            "lookup disconnected shared route",
-            "C-eng",
-            "msg-4",
-        )))
+        .lookup_binding(
+            ResolveBindingRequest::from_envelope(&shared_envelope(
+                "shared-admission-gate-4",
+                "lookup disconnected shared route",
+                "C-eng",
+                "msg-4",
+            ))
+            .expect("verified envelope binding request"),
+        )
         .await
         .expect_err("a disconnected conversation must stop lookups immediately");
     assert!(matches!(
@@ -5262,7 +5345,10 @@ async fn unadmitted_shared_route_fails_before_actor_binding_side_effects() {
         ),
     );
     let error = binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&unrouted))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&unrouted)
+                .expect("verified envelope binding request"),
+        )
         .await
         .expect_err("an unadmitted shared conversation must fail closed");
     assert!(matches!(
@@ -5279,7 +5365,10 @@ async fn unadmitted_shared_route_fails_before_actor_binding_side_effects() {
     // resolved actor, who owns their thread.
     admission.set_admitted();
     let resolved = binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&unrouted))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&unrouted)
+                .expect("verified envelope binding request"),
+        )
         .await
         .expect("an admitted shared conversation resolves");
     assert_eq!(resolved.actor_user_id.as_str(), "user:alice");
@@ -5373,7 +5462,10 @@ async fn shared_lookup_binding_rejects_existing_binding_when_resolved_actor_diff
     let binding = ProductConversationBindingService::new(conversation_port, resolver);
 
     let error = binding
-        .lookup_binding(ResolveBindingRequest::from_envelope(&envelope))
+        .lookup_binding(
+            ResolveBindingRequest::from_envelope(&envelope)
+                .expect("verified envelope binding request"),
+        )
         .await
         .expect_err("lookup should reject mismatched resolved actor");
 
@@ -5384,13 +5476,13 @@ async fn shared_lookup_binding_rejects_existing_binding_when_resolved_actor_diff
 }
 
 #[tokio::test]
-async fn shared_lookup_does_not_surface_another_actors_thread() {
-    // Pin changed with the run-acts-as-invoker ruling. This replaces the
-    // retired legacy-ownerless-backfill test: `resolve_or_create_binding` can
-    // no longer seed an ownerless shared row (every shared binding is keyed
-    // by its paired actor), so the surviving lookup pin is per-actor
-    // isolation — one actor's shared thread is never handed to another actor
-    // on an existing-only lookup, and admission is consulted first.
+async fn shared_lookup_verifies_membership_and_never_joins() {
+    // Pin changed with the ephemeral-per-ping remodel (#7377): a shared
+    // (channel) RESOLVE mints a fresh pinger-owned thread — there is no shared
+    // thread and no participant set to widen. Existing-only LOOKUPS never mint
+    // or join: they return the per-conversation binding only to a participant
+    // of its stored thread (the pinger who seeded it) and refuse everyone else.
+    // Admission is consulted first either way.
     let tenant_id = TenantId::new("tenant:alpha").expect("tenant");
     let adapter_kind = ironclaw_conversations::AdapterKind::new("test_adapter").expect("adapter");
     let installation_id =
@@ -5439,39 +5531,74 @@ async fn shared_lookup_does_not_surface_another_actors_thread() {
             ),
         )
     };
-    // Seed alice's per-actor shared thread through the product service.
+    // Seed the shared conversation thread through the product service.
     let alice = binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&shared_envelope(
-            "shared-per-actor-seed",
-            "user1",
-            "msg-1",
-        )))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&shared_envelope(
+                "shared-membership-seed",
+                "user1",
+                "msg-1",
+            ))
+            .expect("verified envelope binding request"),
+        )
         .await
         .expect("alice's admitted shared binding resolves");
     assert_eq!(alice.actor_user_id.as_str(), "user:alice");
 
-    // Bob has no binding in this conversation: the existing-only lookup must
-    // not hand him alice's thread.
+    // Bob never resolved in this conversation: the existing-only lookup
+    // verifies membership and must refuse rather than join him in.
     let error = binding
-        .lookup_binding(ResolveBindingRequest::from_envelope(&shared_envelope(
-            "shared-per-actor-lookup-bob",
-            "user2",
-            "msg-2",
-        )))
+        .lookup_binding(
+            ResolveBindingRequest::from_envelope(&shared_envelope(
+                "shared-membership-lookup-bob",
+                "user2",
+                "msg-2",
+            ))
+            .expect("verified envelope binding request"),
+        )
         .await
-        .expect_err("a lookup must not surface another actor's shared thread");
+        .expect_err("a lookup must not join a never-resolved user into the thread");
     assert!(matches!(
         error,
-        ProductOperationFailure::BindingRequired { .. }
+        ProductOperationFailure::BindingAccessDenied
     ));
 
-    // Alice's own lookup keeps resolving her thread.
+    // A Shared-route RESOLVE gives bob his OWN ephemeral thread, acting as
+    // himself — there is no shared thread to join.
+    let bob = binding
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&shared_envelope(
+                "shared-membership-join-bob",
+                "user2",
+                "msg-3",
+            ))
+            .expect("verified envelope binding request"),
+        )
+        .await
+        .expect("bob's shared resolve mints his own ephemeral thread");
+    assert_ne!(
+        bob.thread_id, alice.thread_id,
+        "each pinger gets their own ephemeral thread, never a shared one"
+    );
+    assert_eq!(bob.actor_user_id.as_str(), "user:bob");
+
+    // Note: the retired "a joined participant's later lookup resolves the
+    // shared thread" leg is gone with the shared-membership model — bob's
+    // resolve minted a per-event thread only, so a later lookup (against the
+    // seeded per-conversation binding, which he is not a participant of) would
+    // correctly refuse, not join.
+
+    // Alice seeded the per-conversation binding, so her own existing-only
+    // lookup still resolves its stored thread without minting a new one.
     let alice_again = binding
-        .lookup_binding(ResolveBindingRequest::from_envelope(&shared_envelope(
-            "shared-per-actor-lookup-alice",
-            "user1",
-            "msg-3",
-        )))
+        .lookup_binding(
+            ResolveBindingRequest::from_envelope(&shared_envelope(
+                "shared-membership-lookup-alice",
+                "user1",
+                "msg-5",
+            ))
+            .expect("verified envelope binding request"),
+        )
         .await
         .expect("alice's own lookup resolves");
     assert_eq!(alice_again.thread_id, alice.thread_id);
@@ -5526,7 +5653,10 @@ async fn direct_route_never_consults_shared_admission() {
     );
 
     let resolved = binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&envelope))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&envelope)
+                .expect("verified envelope binding request"),
+        )
         .await
         .expect("direct binding should not depend on shared admission");
 
@@ -5569,7 +5699,10 @@ async fn shared_route_propagates_admission_resolver_error() {
     );
 
     let error = binding
-        .resolve_binding(ResolveBindingRequest::from_envelope(&envelope))
+        .resolve_binding(
+            ResolveBindingRequest::from_envelope(&envelope)
+                .expect("verified envelope binding request"),
+        )
         .await
         .expect_err("admission resolver error must propagate");
 
@@ -6060,7 +6193,7 @@ async fn concrete_product_surface_replays_binding_access_denied_rejection() {
         .submit_inbound(sample_envelope("direct-owner"))
         .await
         .expect("owner accepted");
-    let direct_thread = coordinator.submissions()[0].scope.thread_id.clone();
+    let _direct_thread = coordinator.submissions()[0].scope.thread_id.clone();
     conversations
         .pair_external_actor(
             TenantId::new("tenant:alpha").expect("tenant"),
@@ -6070,14 +6203,6 @@ async fn concrete_product_surface_replays_binding_access_denied_rejection() {
             UserId::new("user:bob").expect("user"),
         )
         .await;
-    conversations
-        .add_thread_participant(
-            &TenantId::new("tenant:alpha").expect("tenant"),
-            &direct_thread,
-            UserId::new("user:bob").expect("user"),
-        )
-        .await
-        .expect("participant added");
     let denied = sample_envelope_with_context(
         ProductAdapterId::new("test_adapter").expect("adapter"),
         AdapterInstallationId::new("install_alpha").expect("install"),
@@ -6322,7 +6447,11 @@ async fn in_memory_idempotency_ledger_rejects_settle_after_expiry_without_reclai
 }
 
 fn product_binding_service(
-    conversations: Arc<InMemoryConversationServices>,
+    // Widened to the domain port (not `Arc<InMemoryConversationServices>`)
+    // so the legacy-row pin below can drive the SAME production binding
+    // service over the filesystem-backed conversation store it rewrites;
+    // in-memory callers coerce implicitly.
+    conversations: Arc<dyn ironclaw_conversations::ConversationBindingService>,
     installations: Vec<(&str, &str, &str, &str, Option<&str>)>,
 ) -> ProductConversationBindingService {
     let conversation_port: Arc<dyn ironclaw_conversations::ConversationBindingService> =
@@ -6598,6 +6727,90 @@ struct CountingConversationBindingService {
     trusted_resolve_count: AtomicUsize,
 }
 
+struct AccessDeniedOnceConversationBindingService {
+    inner: Arc<InMemoryConversationServices>,
+    resolve_calls: AtomicUsize,
+}
+
+impl AccessDeniedOnceConversationBindingService {
+    fn new(inner: Arc<InMemoryConversationServices>) -> Self {
+        Self {
+            inner,
+            resolve_calls: AtomicUsize::new(0),
+        }
+    }
+}
+
+#[async_trait]
+impl ironclaw_conversations::ConversationBindingService
+    for AccessDeniedOnceConversationBindingService
+{
+    async fn resolve_or_create_binding(
+        &self,
+        request: ironclaw_conversations::ResolveConversationRequest,
+    ) -> Result<
+        ironclaw_conversations::ConversationBindingResolution,
+        ironclaw_conversations::InboundTurnError,
+    > {
+        self.resolve_or_create_binding_with_trusted_scope(request, None, None, None)
+            .await
+    }
+
+    async fn resolve_or_create_binding_with_trusted_scope(
+        &self,
+        request: ironclaw_conversations::ResolveConversationRequest,
+        trusted_agent_id: Option<AgentId>,
+        trusted_project_id: Option<ProjectId>,
+        trusted_owner_user_id: Option<UserId>,
+    ) -> Result<
+        ironclaw_conversations::ConversationBindingResolution,
+        ironclaw_conversations::InboundTurnError,
+    > {
+        if self.resolve_calls.fetch_add(1, Ordering::SeqCst) == 0 {
+            return Err(ironclaw_conversations::InboundTurnError::AccessDenied {
+                actor_id: "user:alice".to_string(),
+                thread_id: "stale-thread".to_string(),
+            });
+        }
+        self.inner
+            .resolve_or_create_binding_with_trusted_scope(
+                request,
+                trusted_agent_id,
+                trusted_project_id,
+                trusted_owner_user_id,
+            )
+            .await
+    }
+
+    async fn lookup_binding(
+        &self,
+        request: ironclaw_conversations::ResolveConversationRequest,
+    ) -> Result<
+        ironclaw_conversations::ConversationBindingResolution,
+        ironclaw_conversations::InboundTurnError,
+    > {
+        self.inner.lookup_binding(request).await
+    }
+
+    async fn link_conversation_to_thread(
+        &self,
+        request: ironclaw_conversations::LinkConversationRequest,
+    ) -> Result<
+        ironclaw_conversations::LinkedConversationBinding,
+        ironclaw_conversations::InboundTurnError,
+    > {
+        self.inner.link_conversation_to_thread(request).await
+    }
+
+    async fn validate_reply_target(
+        &self,
+        request: ironclaw_conversations::ValidateReplyTargetRequest,
+    ) -> Result<ironclaw_conversations::ReplyTargetBinding, ironclaw_conversations::InboundTurnError>
+    {
+        self.inner.validate_reply_target(request).await
+    }
+}
+
 impl CountingConversationBindingService {
     fn new(inner: Arc<InMemoryConversationServices>) -> Self {
         Self {
@@ -6860,6 +7073,7 @@ async fn rejected_busy_is_settled_and_duplicate_on_transport_retry() {
         accepted_message_ref: accepted_message_ref.clone(),
         active_run_id: Some(busy_run),
         binding: fake_binding(),
+        busy: None,
     });
 
     let envelope = sample_envelope("busy-retry");
@@ -7061,6 +7275,7 @@ async fn rejected_busy_with_no_active_run_id_is_settled_and_duplicate_on_transpo
         accepted_message_ref: accepted_message_ref.clone(),
         active_run_id: None,
         binding: fake_binding(),
+        busy: None,
     });
     let envelope = sample_envelope("busy-no-run");
 

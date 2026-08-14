@@ -461,6 +461,12 @@ impl RebornIntegrationHarnessBuilder {
         self
     }
 
+    /// Select an exact disclosure comparison arm without mutating process env.
+    pub fn with_tool_disclosure_mode(mut self, mode: ToolDisclosureMode) -> Self {
+        self.tool_disclosure = mode;
+        self
+    }
+
     /// Exercise the production enum default without making the general
     /// integration harness depend on ambient process configuration.
     pub fn with_tool_disclosure_production_default(mut self) -> Self {
@@ -724,14 +730,7 @@ impl RebornIntegrationHarnessBuilder {
         if self.turn_event_sink {
             group_builder = group_builder.with_turn_event_sink();
         }
-        match self.tool_disclosure {
-            ToolDisclosureMode::Bridged => {
-                group_builder = group_builder.with_tool_disclosure_bridged();
-            }
-            ToolDisclosureMode::Off => {
-                group_builder = group_builder.with_tool_disclosure_off();
-            }
-        }
+        group_builder = group_builder.with_tool_disclosure_mode(self.tool_disclosure);
         if let Some(policy) = self.bridged_policy_override {
             group_builder = group_builder.with_capability_surface_policy_for_bridged_test(policy);
         }
@@ -968,13 +967,23 @@ impl RebornIntegrationHarness {
                     .into(),
             );
         }
-        let (event_id, envelope) = self.build_user_envelope(text)?;
+        let event_id = format!("evt-{}", self.event_seq.fetch_add(1, Ordering::Relaxed));
         let attachment = ironclaw_host_api::attachment::InboundAttachment {
             id: format!("{event_id}-att-0"),
             mime_type: mime_type.to_string(),
             filename: Some(filename.to_string()),
             bytes,
         };
+        let envelope = self
+            .ingress
+            .verified_text_envelope_with_trigger_and_attachments(
+                &event_id,
+                &self.actor_id,
+                &self.conversation_id,
+                text,
+                ProductTriggerReason::DirectChat,
+                std::slice::from_ref(&attachment),
+            )?;
         let ack = self
             .workflow
             .submit_inbound_with_attachments(envelope, vec![attachment])
@@ -1002,7 +1011,7 @@ impl RebornIntegrationHarness {
                     .into(),
             );
         }
-        let (event_id, envelope) = self.build_user_envelope(text)?;
+        let event_id = format!("evt-{}", self.event_seq.fetch_add(1, Ordering::Relaxed));
         let inbound = attachments
             .into_iter()
             .enumerate()
@@ -1014,7 +1023,17 @@ impl RebornIntegrationHarness {
                     bytes,
                 }
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let envelope = self
+            .ingress
+            .verified_text_envelope_with_trigger_and_attachments(
+                &event_id,
+                &self.actor_id,
+                &self.conversation_id,
+                text,
+                ProductTriggerReason::DirectChat,
+                &inbound,
+            )?;
         let ack = self
             .workflow
             .submit_inbound_with_attachments(envelope, inbound)
@@ -2022,6 +2041,37 @@ impl RebornIntegrationHarness {
         .await
     }
 
+    /// Provider-generic twin of [`Self::resolve_auth_gate`]: resolve a blocked
+    /// AUTH gate by minting a real credential account for `provider` under THIS
+    /// run's dispatch scope (through the production manual-token flow), then
+    /// resuming with no deny disposition so the parked capability
+    /// re-dispatches.
+    ///
+    /// `resolve_auth_gate` is hardwired to GitHub's seeder; this is the form a
+    /// linked-account (device-link) journey needs, where "the user answered the
+    /// gate" means "the user linked their account" and the provider is the
+    /// package's own credential-authority namespace.
+    pub async fn resolve_auth_gate_for_provider(
+        &self,
+        run_id: TurnRunId,
+        gate_ref: &TurnGateRef,
+        provider: &str,
+        label: &str,
+    ) -> HarnessResult<()> {
+        if !gate_ref.as_str().starts_with("gate:auth-") {
+            return Err(format!("expected an auth gate ref, got {gate_ref:?}").into());
+        }
+        self.seed_capability_credential_account(provider, label, &[])
+            .await?;
+        self.resume_run(
+            run_id,
+            gate_ref.clone(),
+            None,
+            ResumeTurnPrecondition::BlockedAuthGate,
+        )
+        .await
+    }
+
     /// Seed a Configured credential account WITH real secret material for
     /// `provider` through the production manual-token flow, scoped so this
     /// thread's CAPABILITY dispatch finds it: account selection matches all of
@@ -2124,6 +2174,147 @@ impl RebornIntegrationHarness {
             .into());
         }
         Ok(())
+    }
+
+    /// Drive one device link end to end through the **production** step
+    /// machine — the same `DeviceLinkFlowDriver` the WebUI routes dispatch to,
+    /// resolved off the composed product-auth bundle — and return the
+    /// credential account it minted.
+    ///
+    /// What is real here is everything except the vendor: composition's
+    /// driver, the auth-side revision compare-and-swap and TTLs, the extension
+    /// host's snapshot resolution and rate limits, provisional custody, the
+    /// completion mint with its ownership pin, and the durable blob write. The
+    /// vendor half is the harness's scripted adapter, because the real one
+    /// speaks MTProto over a socket with no injectable seam.
+    pub async fn link_device_through_product_auth(
+        &self,
+        provider: &str,
+        extension_id: &str,
+        password: &str,
+    ) -> HarnessResult<ironclaw_auth::CredentialAccount> {
+        let harness = match &self._shared.capability {
+            GroupCapability::HostRuntime(arc) => arc,
+            _ => return Err("no host-runtime capability backend to drive a device link".into()),
+        };
+        let product_auth = harness.product_auth_for_test()?;
+        let driver = product_auth
+            .device_link_driver()
+            .ok_or("composition wired no device-link driver")?;
+        // Mirror production execution-user resolution (explicit owner → actor)
+        // exactly as `seed_capability_credential_account` does: the account
+        // must land under the same four scope fields dispatch-time credential
+        // selection matches on, or the linked tool parks on the auth gate
+        // forever against an account that plainly exists.
+        let dispatch_user = self
+            .turn_scope
+            .explicit_owner_user_id()
+            .cloned()
+            .unwrap_or_else(|| self.binding.actor_user_id.clone());
+        let resource = self.run_resource_scope_for_user(dispatch_user);
+        let scope = ironclaw_auth::AuthProductScope::credential_owner(
+            &resource,
+            ironclaw_auth::AuthSurface::Api,
+        );
+
+        let record = driver
+            .start(ironclaw_auth::DeviceLinkStartRequest {
+                scope: scope.clone(),
+                provider: ironclaw_auth::AuthProviderId::new(provider)?,
+                extension_id: ironclaw_host_api::ids::ExtensionId::new(extension_id)?,
+                continuation: ironclaw_auth::AuthContinuationRef::SetupOnly,
+                mode: ironclaw_extension_contracts::device_link::DeviceLinkMode::Default,
+                resume: None,
+            })
+            .await
+            .map_err(|error| format!("device-link start failed: {error:?}"))?;
+        let flow_id = record.id;
+
+        // Poll until the vendor asks for a value, waiting out the back-off the
+        // frame itself asks for. That wait is not test politeness: the host
+        // enforces a poll floor and answers an early poll with
+        // `AwaitingVendor` *without calling the adapter at all*, so a tight
+        // loop here would spin forever against the rate limiter rather than
+        // advancing the link — exactly what a hot-looping card would do.
+        // Bounded: a link that never reaches an input step is a failure to
+        // report, not a loop to spin.
+        let mut record = record;
+        for _ in 0..8 {
+            if matches!(
+                record.device_link_step(),
+                Some(
+                    ironclaw_extension_contracts::device_link::DeviceLinkStep::InputRequired { .. }
+                )
+            ) {
+                break;
+            }
+            if let Some(
+                ironclaw_extension_contracts::device_link::DeviceLinkStep::AwaitingVendor {
+                    retry_in,
+                },
+            ) = record.device_link_step()
+            {
+                tokio::time::sleep(*retry_in).await;
+            }
+            record = driver
+                .poll(&scope, flow_id)
+                .await
+                .map_err(|error| format!("device-link poll failed: {error:?}"))?;
+        }
+        let Some(ironclaw_extension_contracts::device_link::DeviceLinkStep::InputRequired {
+            kind,
+            ..
+        }) = record.device_link_step().cloned()
+        else {
+            return Err(format!(
+                "device link never asked for input (last step: {:?})",
+                record.device_link_step()
+            )
+            .into());
+        };
+
+        let input = match kind {
+            ironclaw_extension_contracts::device_link::DeviceLinkInputKind::Password => {
+                ironclaw_extension_contracts::device_link::DeviceLinkInput::Password(
+                    secrecy::SecretString::from(password.to_string()),
+                )
+            }
+            ironclaw_extension_contracts::device_link::DeviceLinkInputKind::Code => {
+                ironclaw_extension_contracts::device_link::DeviceLinkInput::Code(
+                    secrecy::SecretString::from(password.to_string()),
+                )
+            }
+            ironclaw_extension_contracts::device_link::DeviceLinkInputKind::Identifier => {
+                ironclaw_extension_contracts::device_link::DeviceLinkInput::Identifier(
+                    password.to_string(),
+                )
+            }
+        };
+        let completed = driver
+            .submit_input(&scope, flow_id, record.step_revision(), input)
+            .await
+            .map_err(|error| format!("device-link submit failed: {error:?}"))?;
+        if completed.status != ironclaw_auth::AuthFlowStatus::Completed {
+            return Err(format!(
+                "device link did not complete: {:?} / {:?}",
+                completed.status,
+                completed.device_link_step()
+            )
+            .into());
+        }
+        let account_id = completed
+            .credential_account_id
+            .ok_or("a completed device link must carry the account it minted")?;
+        product_auth
+            .credential_account_service()
+            .get_account(ironclaw_auth::CredentialAccountLookupRequest {
+                scope,
+                account_id,
+                requester_extension: Some(ironclaw_host_api::ids::ExtensionId::new(extension_id)?),
+            })
+            .await
+            .map_err(|error| format!("minted account read-back failed: {error:?}"))?
+            .ok_or_else(|| "the minted credential account is missing on read-back".into())
     }
 
     /// This thread's run `(tenant, agent, project)` scope with `user_id` as
@@ -2476,9 +2667,7 @@ pub(crate) fn apply_hermetic_env() {
             std::env::remove_var("LLM_RESPONSE_CACHE_ENABLED");
             std::env::remove_var("RESPONSE_CACHE_ENABLED");
             std::env::remove_var("NEARAI_SESSION_TOKEN");
-            // No integration test should inherit the ambient tool-disclosure
-            // knob. Builders pin Off and disclosure tests opt into Bridged;
-            // scrubbing is defense in depth for the retained env fallback.
+            // No integration test should inherit ambient rollout knobs.
             std::env::remove_var(ironclaw_loop_host::REBORN_TOOL_DISCLOSURE_ENV);
         }
     });
@@ -2496,7 +2685,10 @@ pub(crate) fn binding_request(
         external_conversation_ref: envelope.external_conversation_ref().clone(),
         external_event_id: envelope.external_event_id().clone(),
         route_kind: ProductConversationRouteKind::Direct,
-        auth_claim: envelope.auth_claim().clone(),
+        auth_claim: envelope
+            .require_verified_auth_claim()
+            .expect("harness envelopes carry verified webhook evidence")
+            .clone(),
     }
 }
 
@@ -2508,7 +2700,9 @@ pub(crate) fn thread_scope_from_binding(binding: &ResolvedBinding) -> HarnessRes
             .clone()
             .ok_or("resolved binding missing agent id")?,
         project_id: binding.project_id.clone(),
-        // A run acts as the user who invoked it: the actor owns the scope.
+        // The run's thread scope is the acting user (the pinger). Ephemeral
+        // per-ping threads are pinger-owned, so owner == actor; mirrors
+        // production `run_delivery::thread_scope_from_binding`.
         owner_user_id: Some(binding.actor_user_id.clone()),
         mission_id: None,
     })

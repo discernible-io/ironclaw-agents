@@ -16,7 +16,7 @@ use ironclaw_host_api::{
 };
 use ironclaw_loop_contracts::{
     AgentLoopHostError, AgentLoopHostErrorKind, CapabilityCallCandidate, CapabilityDescriptorView,
-    CapabilityInputRef, CapabilitySurfaceVersion, ConcurrencyHint, LoopCapabilityPort, LoopRequest,
+    CapabilityInputRef, CapabilitySurfaceVersion, LoopCapabilityPort, LoopRequest,
     LoopRequestBatch, LoopRunContext, ProviderToolCall, ProviderToolCallCapabilityIds,
     ProviderToolCallReplay, ProviderToolDefinition, RegisterProviderToolCallRequest,
     VisibleCapabilityRequest, VisibleCapabilitySurface,
@@ -98,7 +98,6 @@ pub struct SyntheticCapabilityDescriptor {
     capability_id: CapabilityId,
     provider_tool_name: ProviderToolName,
     description: String,
-    concurrency_hint: ConcurrencyHint,
     parameters_schema: serde_json::Value,
 }
 
@@ -107,7 +106,6 @@ impl SyntheticCapabilityDescriptor {
         capability_id: &str,
         provider_tool_name: &str,
         description: &str,
-        concurrency_hint: ConcurrencyHint,
         parameters_schema: serde_json::Value,
     ) -> Result<Self, AgentLoopHostError> {
         Ok(Self {
@@ -124,7 +122,6 @@ impl SyntheticCapabilityDescriptor {
                 )
             })?,
             description: description.to_string(),
-            concurrency_hint,
             parameters_schema,
         })
     }
@@ -137,7 +134,6 @@ impl SyntheticCapabilityDescriptor {
             safe_name: self.provider_tool_name.as_str().to_string(),
             safe_description: self.description.clone(),
             description_trust: Default::default(),
-            concurrency_hint: self.concurrency_hint,
             parameters_schema: self.parameters_schema.clone(),
         }
     }
@@ -384,6 +380,13 @@ impl SyntheticCapabilityPort {
 
 #[async_trait]
 impl LoopCapabilityPort for SyntheticCapabilityPort {
+    fn requires_ordered_batch_invocation(&self, invocations: &[LoopRequest]) -> bool {
+        invocations.iter().any(|invocation| {
+            self.capabilities_by_id
+                .contains_key(&invocation.capability_id)
+        }) || self.inner.requires_ordered_batch_invocation(invocations)
+    }
+
     fn tool_definitions(&self) -> Result<Vec<ProviderToolDefinition>, AgentLoopHostError> {
         let mut definitions = self.inner.tool_definitions()?;
         if self
@@ -768,7 +771,6 @@ mod tests {
                 TEST_CAPABILITY_ID,
                 TEST_PROVIDER_TOOL_NAME,
                 "Synthetic test capability",
-                ConcurrencyHint::SafeForParallel,
                 serde_json::json!({"type": "object"}),
             )
             .expect("descriptor"),
@@ -795,6 +797,28 @@ mod tests {
             .await
             .expect("visible surface");
         port
+    }
+
+    #[tokio::test]
+    async fn synthetic_batch_requires_host_batch_entry() {
+        let port = synthetic_port().await;
+        let candidate = port
+            .register_provider_tool_call(RegisterProviderToolCallRequest::new(provider_tool_call()))
+            .await
+            .expect("synthetic provider call registers");
+        let synthetic_invocation = LoopRequest {
+            activity_id: candidate.activity_id,
+            surface_version: candidate.surface_version,
+            capability_id: candidate.capability_id,
+            input_ref: candidate.input_ref,
+            approval_resume: None,
+            auth_resume: None,
+        };
+
+        assert!(
+            port.requires_ordered_batch_invocation(&[synthetic_invocation]),
+            "synthetic handlers must retain the decorator's sequential batch contract"
+        );
     }
 
     fn replay_payload_filesystem()
@@ -923,7 +947,9 @@ mod tests {
         assert_eq!(result_writes.load(Ordering::SeqCst), 0);
     }
 
-    async fn owner_differs_from_actor_context() -> LoopRunContext {
+    // Owner == actor since the ephemeral-per-ping remodel; the replay-scope
+    // isolation these tests pin no longer rests on any owner-vs-actor split.
+    async fn run_context_for_replay_isolation() -> LoopRunContext {
         let profile = InMemoryRunProfileResolver::default()
             .resolve_run_profile(RunProfileResolutionRequest::interactive_default())
             .await
@@ -935,7 +961,7 @@ mod tests {
             ThreadId::new("thread-deploy-boundary").expect("thread id"),
         );
         scope.thread_owner = ironclaw_host_api::turn::TurnThreadOwner::explicit(Some(
-            ironclaw_host_api::ids::UserId::new("user-legacy-owner").expect("owner id"),
+            ironclaw_host_api::ids::UserId::new("user-participant").expect("owner id"),
         ));
         LoopRunContext::new(scope, TurnId::new(), TurnRunId::new(), profile).with_actor(
             ironclaw_host_api::turn::TurnActor::new(
@@ -954,7 +980,6 @@ mod tests {
                 TEST_CAPABILITY_ID,
                 TEST_PROVIDER_TOOL_NAME,
                 "Synthetic test capability",
-                ConcurrencyHint::SafeForParallel,
                 serde_json::json!({"type": "object"}),
             )
             .expect("descriptor"),
@@ -998,27 +1023,29 @@ mod tests {
         }
     }
 
-    /// The accepted deploy-boundary ruling, pinned on the synthetic path (the
-    /// runtime-port sibling lives in `capability_port.rs`): a run parked with
-    /// owner ≠ actor BEFORE the run-acts-as-invoker deploy saved its replay
-    /// payload under the OWNER-derived scope; the post-deploy resume loads
-    /// under the acting user, must MISS, and must fail closed as a terminal
-    /// `Unavailable` — never dispatch the handler with re-resolved input.
+    /// Replay-payload scope isolation, pinned on the synthetic path (the
+    /// runtime-port sibling lives in `capability_port.rs`): a payload saved
+    /// under one scope user is INVISIBLE to a resume that loads under a
+    /// different scope user — the resume must MISS and fail closed as a
+    /// terminal `Unavailable`, never dispatching the handler with re-resolved
+    /// input. (Pre-ephemeral this modeled an owner ≠ actor deploy boundary;
+    /// owner == actor now, so the miss is a generic stale/rotated-scope miss.)
     #[tokio::test]
-    async fn approval_resume_misses_owner_scoped_replay_payload_and_fails_closed() {
+    async fn approval_resume_misses_mismatched_scope_replay_payload_and_fails_closed() {
         let handler_invocations = Arc::new(AtomicUsize::new(0));
         let replay_fs = replay_payload_filesystem();
-        let run_context = owner_differs_from_actor_context().await;
+        let run_context = run_context_for_replay_isolation().await;
 
-        // Pre-deploy shape: payload saved under the OWNER-first scope.
+        // Seed the payload under a DIFFERENT (stale/rotated) scope user, so the
+        // run-scoped resume below cannot see it.
         let invocation_id = ironclaw_host_api::ids::InvocationId::new();
-        let mut owner_scope = run_context.scope.to_resource_scope();
-        owner_scope.user_id =
-            ironclaw_host_api::ids::UserId::new("user-legacy-owner").expect("owner id");
+        let mut foreign_scope = run_context.scope.to_resource_scope();
+        foreign_scope.user_id =
+            ironclaw_host_api::ids::UserId::new("user-foreign-scope").expect("foreign user id");
         use ironclaw_capabilities::ReplayPayloadStorePort as _;
         ironclaw_capabilities::ReplayPayloadStore::new(Arc::clone(&replay_fs))
             .save(
-                owner_scope,
+                foreign_scope,
                 invocation_id,
                 ironclaw_capabilities::ReplayPayload {
                     input: serde_json::json!({"message": "hello"}),
@@ -1030,7 +1057,7 @@ mod tests {
                 },
             )
             .await
-            .expect("seed the owner-scoped payload");
+            .expect("seed the mismatched-scope payload");
 
         let port =
             synthetic_port_for_resume(run_context, replay_fs, Arc::clone(&handler_invocations))
@@ -1054,7 +1081,7 @@ mod tests {
                 auth_resume: None,
             })
             .await
-            .expect_err("an owner-scoped payload must be invisible to the acting-user resume");
+            .expect_err("a mismatched-scope payload must be invisible to the run-scoped resume");
 
         assert_eq!(
             error.kind,
@@ -1070,23 +1097,23 @@ mod tests {
     }
 
     /// Positive control for the test above: the SAME dance with the payload
-    /// saved under the acting-user scope (the post-deploy shape on both
+    /// saved under the run's OWN resource scope (the matching shape on both
     /// sides) dispatches the handler exactly once — proving the miss above is
     /// the scope mismatch, not an unrelated failure.
     #[tokio::test]
-    async fn approval_resume_loads_acting_scope_replay_payload_and_dispatches() {
+    async fn approval_resume_loads_matching_scope_replay_payload_and_dispatches() {
         let handler_invocations = Arc::new(AtomicUsize::new(0));
         let replay_fs = replay_payload_filesystem();
-        let run_context = owner_differs_from_actor_context().await;
+        let run_context = run_context_for_replay_isolation().await;
 
         let invocation_id = ironclaw_host_api::ids::InvocationId::new();
-        let acting_scope = run_context.acting_resource_scope(
+        let run_scope = run_context.acting_resource_scope(
             &ironclaw_host_api::ids::UserId::new("user-fallback").expect("user id"),
         );
         use ironclaw_capabilities::ReplayPayloadStorePort as _;
         ironclaw_capabilities::ReplayPayloadStore::new(Arc::clone(&replay_fs))
             .save(
-                acting_scope,
+                run_scope,
                 invocation_id,
                 ironclaw_capabilities::ReplayPayload {
                     input: serde_json::json!({"message": "hello"}),
@@ -1098,7 +1125,7 @@ mod tests {
                 },
             )
             .await
-            .expect("seed the acting-scoped payload");
+            .expect("seed the matching-scope payload");
 
         let port =
             synthetic_port_for_resume(run_context, replay_fs, Arc::clone(&handler_invocations))
@@ -1121,7 +1148,7 @@ mod tests {
             auth_resume: None,
         })
         .await
-        .expect("an acting-scoped payload resumes the capability");
+        .expect("a matching-scope payload resumes the capability");
 
         assert_eq!(
             handler_invocations.load(Ordering::SeqCst),

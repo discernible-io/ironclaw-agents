@@ -241,13 +241,33 @@ pub struct ChannelExtensionBinding {
     /// `ironclaw_hooks::identity::ExtensionId` — the two coexist by design and
     /// resolve by crate, never by name (see `ironclaw_hooks/src/identity.rs`).
     pub extension_id: ironclaw_host_api::ids::ExtensionId,
-    /// The channel adapter implementation linked into the deployment.
-    pub adapter: std::sync::Arc<dyn ironclaw_extension_contracts::channel_adapter::ChannelAdapter>,
+    /// The channel halves this extension implements, linked into the
+    /// deployment. Which halves are present is checked against the manifest's
+    /// `[channel.*]` sections at activation, so a binding that claims an axis
+    /// its manifest does not declare (or omits one it does) fails there
+    /// rather than at first send.
+    pub surfaces: ironclaw_extension_contracts::channel_adapter::ChannelSurfaces,
     /// The vendor half of the preference-target codec, consumed by the
     /// generic outbound-target provider and triggered-delivery hook.
     pub preference_target_codec: Option<
         std::sync::Arc<dyn ironclaw_extension_contracts::preference_target::PreferenceTargetCodec>,
     >,
+    /// An extension-owned outbound delivery-target catalog provider (e.g.
+    /// web-app's constant per-user "Web app" entry). Registered generically
+    /// into the outbound target registry under the extension id; most channel
+    /// extensions leave this `None` because the generic channel provider
+    /// derives their targets from provisioned records.
+    pub outbound_target_provider:
+        Option<std::sync::Arc<dyn ironclaw_outbound::OutboundDeliveryTargetProvider>>,
+    /// Optional startup initialization owned by this binary-linked channel.
+    /// Composition supplies shared host resources and treats the returned
+    /// client bootstrap document as opaque.
+    pub first_party_initializer:
+        Option<std::sync::Arc<dyn crate::channel_initialization::FirstPartyChannelInitializer>>,
+    /// Optional pre-generic registration document address carried as opaque
+    /// deployment data by the binary that links the concrete package.
+    /// Composition validates the path but never branches on extension id.
+    pub registration_document_path: Option<String>,
 }
 
 #[derive(Clone, Debug)]

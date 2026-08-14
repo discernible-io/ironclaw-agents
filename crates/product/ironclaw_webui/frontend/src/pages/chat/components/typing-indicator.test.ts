@@ -29,6 +29,8 @@ function renderTypingIndicator(props = {}, { nowMs = 1_700_000_000_000 } = {}) {
       ],
       useEffect: () => {},
     },
+    useT: () => (key, params) =>
+      params ? `${key}:${JSON.stringify(params)}` : key,
     globalThis: {},
     window: {
       setInterval: () => 1,
@@ -49,7 +51,7 @@ function renderTypingIndicator(props = {}, { nowMs = 1_700_000_000_000 } = {}) {
 test("TypingIndicator keeps the brief action label beside the working indicator", () => {
   assert.deepEqual(renderTypingIndicator().props, {
     state: "working",
-    label: "Working…",
+    label: "chat.processWorking",
     elapsed: undefined,
   });
 });
@@ -76,7 +78,7 @@ test("TypingIndicator keeps the static mark with elapsed time after completion",
     }).props,
     {
       state: "done",
-      label: "Worked for 12s",
+      label: 'chat.workedFor:{"duration":"12s"}',
       elapsed: undefined,
     },
   );
@@ -95,7 +97,7 @@ test.each([
       }).props,
       {
         state: "done",
-        label,
+        label: `chat.workedFor:${JSON.stringify({ duration: label.replace("Worked for ", "") })}`,
         elapsed: undefined,
       },
     );

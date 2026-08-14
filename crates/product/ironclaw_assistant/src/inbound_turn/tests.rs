@@ -1,28 +1,17 @@
 use ironclaw_product_contracts::action::SourceBindingKey;
-use std::{
-    collections::VecDeque,
-    future::pending,
-    sync::{
-        Mutex,
-        atomic::{AtomicUsize, Ordering},
-    },
-};
+use std::{future::pending, sync::Mutex};
 
 use async_trait::async_trait;
 use chrono::TimeZone;
-use ironclaw_extension_contracts::channel_adapter::{
-    DeliveryReport, InboundOutcome, OutboundEnvelope, ProductTriggerReason, VerifiedInbound,
-};
+use ironclaw_extension_contracts::channel_adapter::ProductTriggerReason;
 use ironclaw_extension_contracts::external::{
     ExternalActorRef, ExternalConversationRef, ProductAttachmentDescriptor, ProductAttachmentKind,
-};
-use ironclaw_extension_contracts::tool_adapter::{
-    RestrictedEgressError, RestrictedEgressRequest, RestrictedEgressResponse,
 };
 use ironclaw_host_api::ids::{AgentId, TenantId, ThreadId, UserId};
 use ironclaw_host_api::product_adapter::{AdapterInstallationId, ProductAdapterId};
 use ironclaw_host_api::turn::{
-    EventCursor, RunProfileId, RunProfileVersion, TurnId, TurnRunId, TurnScope, TurnStatus,
+    EventCursor, ReplyTargetBindingRef, RunProfileId, RunProfileVersion, SourceBindingRef, TurnId,
+    TurnRunId, TurnScope, TurnStatus,
 };
 use ironclaw_loop_host::RejectingInputEnqueue;
 use ironclaw_product_contracts::inbound::{ProductRejectionKind, UserMessagePayload};
@@ -30,11 +19,12 @@ use ironclaw_threads::{
     AcceptInboundMessageRequest, AcceptedInboundMessage, AcceptedInboundMessageReplay,
     AppendAssistantDraftRequest, AppendCapabilityDisplayPreviewRequest,
     AppendToolResultReferenceRequest, ContextMessages, ContextWindow, CreateSummaryArtifactRequest,
-    EnsureThreadRequest, ListThreadsForScopeRequest, ListThreadsForScopeResponse,
-    LoadContextMessagesRequest, LoadContextWindowRequest, MessageContent, RedactMessageRequest,
-    ReplayAcceptedInboundMessageRequest, SessionThreadError, SessionThreadRecord, SummaryArtifact,
-    ThreadHistory, ThreadHistoryRequest, ThreadMessageId, ThreadMessageRecord, ThreadScope,
-    UpdateAssistantDraftRequest, UpdateToolResultReferenceRequest,
+    EnsureThreadRequest, InboundMessageReplayMetadata, ListThreadsForScopeRequest,
+    ListThreadsForScopeResponse, LoadContextMessagesRequest, LoadContextWindowRequest,
+    MessageContent, RedactMessageRequest, ReplayAcceptedInboundMessageRequest, SessionThreadError,
+    SessionThreadRecord, SummaryArtifact, ThreadHistory, ThreadHistoryRequest, ThreadMessageId,
+    ThreadMessageRecord, ThreadScope, UpdateAssistantDraftRequest,
+    UpdateToolResultReferenceRequest,
 };
 use ironclaw_turns::{
     CancelRunRequest, CancelRunResponse, GetRunStateRequest, ResumeTurnRequest, ResumeTurnResponse,
@@ -284,7 +274,7 @@ async fn replay_submit_carries_direct_surface_type_and_adapter_id() {
     let thread_service = StubSessionThreadService;
 
     handoff
-        .submit_or_replay(&thread_service, &coordinator, &RejectingInputEnqueue)
+        .submit_or_replay(&thread_service, &coordinator, &RejectingInputEnqueue, None)
         .await
         .expect("submit_or_replay succeeds");
 
@@ -466,6 +456,8 @@ fn prepared_replay_uses_fresh_binding_scope_over_persisted_scope() {
             thread_id: thread_id(),
             agent_id: Some(AgentId::new("agent:alpha").unwrap()),
             project_id: None,
+            source_binding_ref: SourceBindingRef::new("source:alpha").unwrap(),
+            reply_target_binding_ref: ReplyTargetBindingRef::new("reply:alpha").unwrap(),
         },
         thread_scope: ThreadScope {
             tenant_id: tenant_id(),
@@ -475,10 +467,13 @@ fn prepared_replay_uses_fresh_binding_scope_over_persisted_scope() {
             mission_id: None,
         },
         source_binding_id: "src:alpha".to_string(),
+        reply_target_binding_id: "reply:alpha".to_string(),
         submit_idempotency_key: "turn-key".to_string(),
         adapter_id: ProductAdapterId::new("test_adapter").unwrap(),
         source_channel: ProductSourceChannel::new("test_adapter").unwrap(),
         surface_type: TurnSurfaceType::Direct,
+        lane: SubmissionLane::Webhook,
+        skill_activation_text: None,
     };
 
     let handoff = ProductInboundTurnHandoff::from_replay_with_prepared(
@@ -512,6 +507,8 @@ async fn shared_user_message_records_channel_surface_type() {
             thread_id: thread_id(),
             agent_id: Some(AgentId::new("agent:alpha").unwrap()),
             project_id: None,
+            source_binding_ref: SourceBindingRef::new("source:shared").unwrap(),
+            reply_target_binding_ref: ReplyTargetBindingRef::new("reply:shared").unwrap(),
         },
         thread_scope: ThreadScope {
             tenant_id: tenant_id(),
@@ -521,11 +518,14 @@ async fn shared_user_message_records_channel_surface_type() {
             mission_id: None,
         },
         source_binding_id: "src:shared".to_string(),
+        reply_target_binding_id: "reply:shared".to_string(),
         submit_idempotency_key: "turn-key-shared".to_string(),
         adapter_id: ProductAdapterId::new("slack").unwrap(),
         source_channel: ProductSourceChannel::new("slack").unwrap(),
         // BotMention shared route maps to Channel surface type.
         surface_type: TurnSurfaceType::Channel,
+        lane: SubmissionLane::Webhook,
+        skill_activation_text: None,
     };
 
     let handoff = ProductInboundTurnHandoff::from_replay_with_prepared(
@@ -546,7 +546,7 @@ async fn shared_user_message_records_channel_surface_type() {
     let thread_service = StubSessionThreadService;
 
     handoff
-        .submit_or_replay(&thread_service, &coordinator, &RejectingInputEnqueue)
+        .submit_or_replay(&thread_service, &coordinator, &RejectingInputEnqueue, None)
         .await
         .expect("submit_or_replay succeeds");
 
@@ -582,6 +582,7 @@ fn policy_request() -> BeforeInboundPolicyRequest {
             .expect("source binding key"),
         rate_limit_key: SourceBindingKey::new("space:0:;conversation:5:conv1;topic:0:;")
             .expect("rate limit key"),
+        session_caller: None,
         user_message: UserMessagePayload::new("hello", vec![], ProductTriggerReason::DirectChat)
             .expect("message"),
     }
@@ -610,6 +611,7 @@ fn replay(
         source_binding_id: source_binding_id.map(str::to_string),
         reply_target_binding_id: reply_target_binding_id.map(str::to_string),
         turn_run_id,
+        replay_metadata: InboundMessageReplayMetadata::default(),
     }
 }
 

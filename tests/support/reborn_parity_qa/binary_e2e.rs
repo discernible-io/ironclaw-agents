@@ -1054,6 +1054,8 @@ impl RebornBinaryE2EHarness {
             .resolve_binding(binding_request)
             .await?;
         let thread_scope = thread_scope_from_binding_with_route_kind(&binding, route_kind)?;
+        // Owner == actor under ephemeral-per-ping: the run's thread scope is
+        // the acting user (the pinger). Mirrors production scope derivation.
         let turn_scope = TurnScope::new_with_owner(
             binding.tenant_id.clone(),
             binding.agent_id.clone(),
@@ -1582,7 +1584,10 @@ fn binding_request_from_envelope(envelope: &ProductInboundEnvelope) -> ResolveBi
         external_conversation_ref: envelope.external_conversation_ref().clone(),
         external_event_id: envelope.external_event_id().clone(),
         route_kind: route_kind_for_envelope(envelope),
-        auth_claim: envelope.auth_claim().clone(),
+        auth_claim: envelope
+            .require_verified_auth_claim()
+            .expect("parity harness envelopes carry verified webhook evidence")
+            .clone(),
     }
 }
 
@@ -1601,7 +1606,9 @@ fn thread_scope_from_binding_with_route_kind(
             .clone()
             .ok_or("resolved binding missing agent id")?,
         project_id: binding.project_id.clone(),
-        // A run acts as the user who invoked it: the actor owns the scope.
+        // The run's thread scope is the acting user (the pinger); owner ==
+        // actor under ephemeral-per-ping. Mirrors production
+        // `run_delivery::thread_scope_from_binding`.
         owner_user_id: Some(binding.actor_user_id.clone()),
         mission_id: None,
     })

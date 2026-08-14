@@ -22,6 +22,7 @@ use ironclaw_host_api::ids::{AgentId, ProjectId, TenantId, ThreadId, UserId};
 use ironclaw_host_api::product_adapter::{
     AdapterInstallationId, ProductAdapterId, VerifiedAuthClaim,
 };
+use ironclaw_host_api::turn::{ReplyTargetBindingRef, SourceBindingRef};
 use serde::{Deserialize, Serialize};
 
 use crate::error::ProductOperationFailure;
@@ -49,6 +50,15 @@ pub struct ResolvedBinding {
     /// user-scoped must be completed before entering `InboundTurnService`.
     pub agent_id: Option<AgentId>,
     pub project_id: Option<ProjectId>,
+    /// Per-event source and reply-target binding refs, carried verbatim from
+    /// the conversation resolution. Shared (channel) routes resolve each
+    /// inbound event onto its OWN ephemeral thread with its own refs; carrying
+    /// them here keeps the accepted message and the submitted run anchored to
+    /// that per-event thread instead of a per-conversation ref pinned to the
+    /// first event's thread. Direct (DM) routes carry their persistent
+    /// per-user thread's refs.
+    pub source_binding_ref: SourceBindingRef,
+    pub reply_target_binding_ref: ReplyTargetBindingRef,
 }
 
 /// Request to resolve external adapter refs into canonical Reborn bindings.
@@ -96,16 +106,21 @@ pub enum ProductConversationBindingCreationPolicy {
 }
 
 impl ResolveBindingRequest {
-    pub fn from_envelope(envelope: &ProductInboundEnvelope) -> Self {
-        Self {
+    /// Build the binding request for a webhook-verified envelope. Session
+    /// envelopes bind through their owned thread and never reach the external
+    /// binding resolver, so a missing claim fails closed here.
+    pub fn from_envelope(
+        envelope: &ProductInboundEnvelope,
+    ) -> Result<Self, ironclaw_host_api::product_adapter_error::ProductAdapterError> {
+        Ok(Self {
             adapter_id: envelope.adapter_id().clone(),
             installation_id: envelope.installation_id().clone(),
             external_actor_ref: envelope.external_actor_ref().clone(),
             external_conversation_ref: envelope.external_conversation_ref().clone(),
             external_event_id: envelope.external_event_id().clone(),
             route_kind: route_kind_for_inbound_payload(envelope.payload()),
-            auth_claim: envelope.auth_claim().clone(),
-        }
+            auth_claim: envelope.require_verified_auth_claim()?.clone(),
+        })
     }
 }
 
@@ -236,7 +251,9 @@ mod tests {
             "subject_user_id": "user:legacy-subject",
             "thread_id": "thread:legacy",
             "agent_id": "agent:legacy",
-            "project_id": "project:legacy"
+            "project_id": "project:legacy",
+            "source_binding_ref": "source:legacy",
+            "reply_target_binding_ref": "reply:legacy"
         }))
         .expect("legacy binding should deserialize");
 

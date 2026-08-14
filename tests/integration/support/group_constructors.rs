@@ -106,6 +106,19 @@ impl RebornIntegrationGroup {
         Self::builder().extension_runtime_acme().await
     }
 
+    /// Extension-lifecycle group extended with the bundled Telegram package's
+    /// **linked-account** surfaces: the real shipped manifest (channel +
+    /// device-link auth + fifteen `standard_op` tools), bound through the same
+    /// native-factory seam the binary uses, with the vendor half scripted.
+    /// Credential resolution follows each run owner so a cross-actor scenario
+    /// resolves the *caller's* linked account, never the first binder's.
+    pub async fn device_link_linked_account() -> HarnessResult<(
+        Self,
+        super::super::harness::profiles::device_link::LinkedFixtureHandles,
+    )> {
+        Self::builder().device_link_linked_account().await
+    }
+
     /// Acme runtime group extended for the §5.4 delivery proofs: the bundled
     /// telegram package's native channel factory is assembled and the
     /// recording network egress answers vendor-shaped Slack/Telegram bodies,
@@ -121,6 +134,16 @@ impl RebornIntegrationGroup {
     /// `set_ask_each_time_override_for_test`.
     pub async fn extension_delivery_with_gated_write() -> HarnessResult<Self> {
         Self::builder().extension_delivery_with_gated_write().await
+    }
+
+    /// [`Self::extension_delivery_with_gated_write`] PLUS the complete
+    /// web-app channel: deployment binding (adapter + codec + catalog
+    /// provider), its generic first-party initializer (which seeds VAPID
+    /// material and publishes the public bootstrap), the bundled manifest,
+    /// and a vendor router answering push-service POSTs with `201` (`410` for
+    /// the reserved dead-subscription token).
+    pub async fn extension_delivery_with_web_app() -> HarnessResult<Self> {
+        Self::builder().extension_delivery_with_web_app().await
     }
 
     /// Same group as [`Self::extension_lifecycle`], with a Google OAuth
@@ -223,6 +246,19 @@ impl RebornIntegrationGroup {
         Self::builder().skill_activation_tools().await
     }
 
+    /// [`Self::skill_activation_tools`] with USER-scoped skills already in the store.
+    ///
+    /// Seeding after the group is built does not work: skills are read from the database tree and
+    /// the host-disk store is migrated into it at boot, so a later write is invisible to the run.
+    /// Each entry is `(name, description, prompt, installed)`.
+    pub async fn skill_activation_tools_with_user_skills(
+        user_skills: &[(&str, &str, &str, bool)],
+    ) -> HarnessResult<Self> {
+        Self::builder()
+            .skill_activation_tools_with_user_skills(user_skills)
+            .await
+    }
+
     /// C-MULTIUSER: core built-in tools (memory/http/shell/…) with **per-actor
     /// capability scoping** (`with_run_owner_scoped_capability_dispatch`). Each
     /// thread dispatches its capabilities under its OWN run owner's
@@ -292,6 +328,19 @@ impl RebornIntegrationGroup {
     pub async fn attachment_tools() -> HarnessResult<Self> {
         Self::builder().attachment_tools().await
     }
+
+    /// Group pairing the inbound attachment lander with the `read_file` /
+    /// `write_file` capabilities at auto-approve, so a landed document can be
+    /// read and then edited through real capability dispatch in one journey.
+    /// `attachment_tools()` deliberately surfaces no capabilities, and
+    /// `live_approvals()` gates every call — this is the combination a
+    /// document-editing journey needs. Attachments land under the SAME
+    /// `/workspace` mount `file_tools_profile` grants
+    /// (`ProjectScopedAttachmentLander` → `/workspace/attachments/...`), so the
+    /// model addresses the landed file by its stored `storage_key`.
+    pub async fn document_edit_tools() -> HarnessResult<Self> {
+        Self::builder().document_edit_tools().await
+    }
 }
 
 impl RebornIntegrationGroupBuilder {
@@ -343,6 +392,13 @@ impl RebornIntegrationGroupBuilder {
     pub async fn builtin_tools(self) -> HarnessResult<RebornIntegrationGroup> {
         let host_runtime =
             super::super::harness::profiles::core_builtin::core_builtin_tools_default().await?;
+        let capability = GroupCapability::HostRuntime(Arc::new(host_runtime));
+        self.build_with_capability(capability).await
+    }
+
+    /// Build a document-edit group. See [`RebornIntegrationGroup::document_edit_tools`].
+    pub async fn document_edit_tools(self) -> HarnessResult<RebornIntegrationGroup> {
+        let host_runtime = super::super::harness::profiles::file::document_tools().await?;
         let capability = GroupCapability::HostRuntime(Arc::new(host_runtime));
         self.build_with_capability(capability).await
     }
@@ -471,11 +527,62 @@ impl RebornIntegrationGroupBuilder {
                         .as_ref()
                         .map(|agent| agent.as_str().to_string())
                         .ok_or("group product scope is missing an agent id")?,
+                    project_id: scope
+                        .project_id
+                        .as_ref()
+                        .map(|project| project.as_str().to_string()),
                 },
             )?;
         self.channel_connection = Some(Arc::new(channel_connection));
         let capability = GroupCapability::HostRuntime(Arc::new(host_runtime));
         self.into_group(base, capability).await
+    }
+
+    /// Build the linked-account (device-link) group. See
+    /// [`RebornIntegrationGroup::device_link_linked_account`].
+    ///
+    /// Assembled exactly like [`Self::extension_lifecycle_multiuser`] — the
+    /// same base, the same real channel-connection slot fill a channel
+    /// extension's removal needs, and run-owner-scoped capability dispatch so
+    /// each actor resolves its own credential account — with the linked-account
+    /// profile in place of the plain lifecycle one.
+    pub async fn device_link_linked_account(
+        mut self,
+    ) -> HarnessResult<(
+        RebornIntegrationGroup,
+        super::super::harness::profiles::device_link::LinkedFixtureHandles,
+    )> {
+        let base = self.build_base().await?;
+        let actor_user = base.canonical_actor_user()?;
+        let (profile, handles) =
+            super::super::harness::profiles::device_link::device_link_tools_profile_for_user(
+                actor_user.as_str(),
+            )?;
+        let host_runtime = build_group_capability_with_base(profile, &base)
+            .await?
+            .with_run_owner_scoped_capability_dispatch();
+        let scope = &base.product_harness.scope;
+        let channel_connection =
+            ironclaw_composition::test_support::build_channel_connection_for_test(
+                host_runtime
+                    .reborn_services_for_test()
+                    .ok_or("device-link harness is missing its RebornServices bundle")?,
+                ironclaw_composition::test_support::ChannelConnectionTestConfig {
+                    tenant_id: scope.tenant_id.as_str().to_string(),
+                    agent_id: scope
+                        .agent_id
+                        .as_ref()
+                        .map(|agent| agent.as_str().to_string())
+                        .ok_or("group product scope is missing an agent id")?,
+                    project_id: scope
+                        .project_id
+                        .as_ref()
+                        .map(|project| project.as_str().to_string()),
+                },
+            )?;
+        self.channel_connection = Some(Arc::new(channel_connection));
+        let capability = GroupCapability::HostRuntime(Arc::new(host_runtime));
+        Ok((self.into_group(base, capability).await?, handles))
     }
 
     /// Build the invented-vendor fixture group. See
@@ -503,6 +610,10 @@ impl RebornIntegrationGroupBuilder {
                         .as_ref()
                         .map(|agent| agent.as_str().to_string())
                         .ok_or("group product scope is missing an agent id")?,
+                    project_id: scope
+                        .project_id
+                        .as_ref()
+                        .map(|project| project.as_str().to_string()),
                 },
             )?;
         self.channel_connection = Some(Arc::new(channel_connection));
@@ -533,6 +644,10 @@ impl RebornIntegrationGroupBuilder {
                         .as_ref()
                         .map(|agent| agent.as_str().to_string())
                         .ok_or("group product scope is missing an agent id")?,
+                    project_id: scope
+                        .project_id
+                        .as_ref()
+                        .map(|project| project.as_str().to_string()),
                 },
             )?;
         self.channel_connection = Some(Arc::new(channel_connection));
@@ -567,6 +682,44 @@ impl RebornIntegrationGroupBuilder {
                         .as_ref()
                         .map(|agent| agent.as_str().to_string())
                         .ok_or("group product scope is missing an agent id")?,
+                    project_id: scope
+                        .project_id
+                        .as_ref()
+                        .map(|project| project.as_str().to_string()),
+                },
+            )?;
+        self.channel_connection = Some(Arc::new(channel_connection));
+        let capability = GroupCapability::HostRuntime(Arc::new(host_runtime));
+        self.into_group(base, capability).await
+    }
+
+    /// Build a delivery group with the web-app channel wired. See
+    /// [`RebornIntegrationGroup::extension_delivery_with_web_app`].
+    pub async fn extension_delivery_with_web_app(
+        mut self,
+    ) -> HarnessResult<RebornIntegrationGroup> {
+        let base = self.build_base().await?;
+        let web_app_profile = super::super::harness::profiles::extension::extension_delivery_with_web_app_tools_profile()?;
+        let host_runtime = build_group_capability_with_base(web_app_profile, &base)
+            .await?
+            .with_run_owner_scoped_capability_dispatch();
+        let scope = &base.product_harness.scope;
+        let channel_connection =
+            ironclaw_composition::test_support::build_channel_connection_for_test(
+                host_runtime.reborn_services_for_test().ok_or(
+                    "extension_delivery_with_web_app harness is missing its RebornServices bundle",
+                )?,
+                ironclaw_composition::test_support::ChannelConnectionTestConfig {
+                    tenant_id: scope.tenant_id.as_str().to_string(),
+                    agent_id: scope
+                        .agent_id
+                        .as_ref()
+                        .map(|agent| agent.as_str().to_string())
+                        .ok_or("group product scope is missing an agent id")?,
+                    project_id: scope
+                        .project_id
+                        .as_ref()
+                        .map(|project| project.as_str().to_string()),
                 },
             )?;
         self.channel_connection = Some(Arc::new(channel_connection));
@@ -696,15 +849,28 @@ impl RebornIntegrationGroupBuilder {
     /// pre-seeds the system fixtures before runtime construction so the warmed
     /// system-skill descriptor cache sees them.
     pub async fn skill_activation_tools(self) -> HarnessResult<RebornIntegrationGroup> {
+        self.skill_activation_tools_with_user_skills(&[]).await
+    }
+
+    /// See [`RebornIntegrationGroup::skill_activation_tools_with_user_skills`].
+    pub async fn skill_activation_tools_with_user_skills(
+        self,
+        user_skills: &[(&str, &str, &str, bool)],
+    ) -> HarnessResult<RebornIntegrationGroup> {
         let base = self.build_base().await?;
         // Pass the group's ACTUAL run-scope tenant (resolved by `build_base`
         // above) rather than a separately hardcoded literal, so the E-SKILL
         // skill context source is built for the same tenant the turn runs
         // under — see `HostRuntimeCapabilityHarness::skill_activation_tools`.
-        let host_runtime = super::super::harness::profiles::skill::skill_activation_tools(
-            &base.canonical_binding.tenant_id,
-        )
-        .await?;
+        // Both ids come from the group's ALREADY-resolved binding, so the fixtures land under the
+        // same (tenant, actor) the turn runs as -- the only pair whose `/skills` mount it reads.
+        let host_runtime =
+            super::super::harness::profiles::skill::skill_activation_tools_with_user_skills(
+                &base.canonical_binding.tenant_id,
+                base.canonical_binding.actor_user_id.clone(),
+                user_skills,
+            )
+            .await?;
         let capability = GroupCapability::HostRuntime(Arc::new(host_runtime));
         self.into_group(base, capability).await
     }

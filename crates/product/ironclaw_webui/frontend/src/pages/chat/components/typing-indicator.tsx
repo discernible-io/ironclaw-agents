@@ -1,5 +1,6 @@
 import React from "react";
 import { NearProcessIndicator } from "./near-process-indicator";
+import { useT } from "../../../lib/i18n";
 
 type TypingIndicatorProps =
   | {
@@ -54,6 +55,7 @@ export function TypingIndicator({
   label,
   startedAtMs,
 }: TypingIndicatorProps = {}) {
+  const t = useT();
   const elapsed = useElapsedLabel(state === "working" ? startedAtMs : null);
   return (
     <div className="flex flex-col items-start">
@@ -63,8 +65,8 @@ export function TypingIndicator({
             state={state}
             label={
               state === "done"
-                ? `Worked for ${formatDuration(durationSeconds)}`
-                : label || "Working…"
+                ? t("chat.workedFor", { duration: formatDuration(durationSeconds) })
+                : label || t("chat.processWorking")
             }
             elapsed={elapsed}
           />
