@@ -383,8 +383,9 @@ cmd_telegram_setup() {
   }
   echo "==> Applying Telegram admin configuration via WebUI operator API"
   python3 "$ROOT/scripts/apply-telegram-admin-config.py"
-  echo "Telegram bot is configured. Link your personal Telegram account from WebUI → Extensions → Telegram"
-  echo "(QR or phone). That needs TELEGRAM_API_ID + TELEGRAM_API_HASH from my.telegram.org."
+  echo "Telegram bot is configured. Pair your account from WebUI → Extensions → Telegram"
+  echo "(open the link, scan the QR, or send /start followed by the displayed code to the bot)."
+  echo "TELEGRAM_API_ID / TELEGRAM_API_HASH are only needed for optional personal Telegram tools."
 }
 
 cmd_chat() {

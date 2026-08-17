@@ -1,8 +1,7 @@
 //! Caller-level regression for the model-visible `builtin.extension_search`
-//! channel-connection contract (#6618): Telegram's linked-device flow must not
-//! regress to the retired generated proof-code recipe. Its channel and linked
-//! tools remain discoverable while device-link configuration stays on the
-//! extension's authenticated setup surface.
+//! channel-connection contract (#6618): Telegram's generated-code pairing
+//! recipe must stay discoverable. Linked-account tools remain model-visible
+//! and are a separate optional device-link surface.
 
 #[allow(dead_code)]
 #[path = "support/mod.rs"]
@@ -16,7 +15,7 @@ use reborn_support::reply::RebornScriptedReply;
 use serde_json::json;
 
 #[tokio::test]
-async fn extension_search_omits_retired_proof_code_guidance_for_linked_device_telegram() {
+async fn extension_search_advertises_generated_code_pairing_for_telegram() {
     let group = RebornIntegrationGroup::extension_delivery()
         .await
         .expect("extension-delivery group builds with the Telegram manifest");
@@ -54,9 +53,13 @@ async fn extension_search_omits_retired_proof_code_guidance_for_linked_device_te
             .is_some_and(|kinds| kinds.iter().any(|kind| kind == "channel")),
         "model-visible search must still identify Telegram as a channel: {telegram}"
     );
-    assert!(
-        telegram["channel_connection"].is_null(),
-        "linked-device Telegram must not advertise the retired proof-code recipe: {telegram}"
+    let connection = telegram["channel_connection"]
+        .as_object()
+        .unwrap_or_else(|| panic!("Telegram must advertise its pairing recipe: {telegram}"));
+    assert_eq!(
+        connection["strategy"].as_str(),
+        Some("web_generated_code"),
+        "Telegram channel identity is generated-code pairing: {telegram}"
     );
     assert!(
         telegram["visible_capability_ids"]

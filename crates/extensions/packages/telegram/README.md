@@ -39,17 +39,10 @@ authorization, and tool mediation remain host-owned. Working rules:
 
 ## Upgrade behavior
 
-No database migration converts Telegram's retired bot-pairing ceremony into a
-linked personal account, and no compatibility bridge keeps that ceremony's
-rows alive: **the cutover is deliberately breaking for previously paired
-users**. A proof-code binding written before this release stops authorizing
-anything — identity lookups for a device-link channel consult only the
-versioned `device-link-v1` namespace, so the retired row is inert data. A
-previously paired user finds the channel back in setup, receives the
-connect-required notice if they DM the bot, and links their device once; from
-then on the same verified link serves the bot conversation and the personal
-Telegram capabilities. That is the identical first-run ceremony a fresh
-install gets — missing credentials mean setup, exactly like every other
-extension. Inert pre-cutover rows are not bulk-deleted; a user's removal or
-disconnect revokes the personal session and deletes both identity generations
-and the DM target.
+Channel identity is the generated-code pairing ceremony (`web_generated_code`):
+mint a code in WebUI, open the `t.me` link / QR, or send `/start <code>` to the
+bot. Linked-device auth (`[auth.telegram] method = "device_link"`) stays
+optional for the 15 personal-account tools and is **not** required to DM the
+bot. A previously linked device does not auto-bind bot-channel identity; pair
+once through the pairing panel (or `/start`) to talk to the bot. Device-link
+rows remain valid for tool dispatch.

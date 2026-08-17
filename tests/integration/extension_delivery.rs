@@ -122,7 +122,8 @@ const TELEGRAM_INSTALLATION: &str = "telegram";
 const TELEGRAM_WEBHOOK_SECRET: &str = "itest-telegram-webhook-secret";
 const TELEGRAM_BOT_TOKEN: &str = "123456:itest-telegram-token";
 const TELEGRAM_REPLY: &str = "Here is the coordinated Telegram reply.";
-const TELEGRAM_CONNECT_REQUIRED: &str = "👋 Link this Telegram account from the Telegram extension in IronClaw, then message me here again.";
+const TELEGRAM_CONNECT_REQUIRED: &str =
+    "👋 Pair your Telegram account in the IronClaw web app, then message me here again.";
 
 struct UnexpectedAdmissionSink {
     calls: Arc<AtomicUsize>,
@@ -790,6 +791,42 @@ fn reborn_services(group: &RebornIntegrationGroup) -> &RebornRuntime {
         .expect("host-runtime capability harness")
         .reborn_services_for_test()
         .expect("composed reborn services")
+}
+
+async fn pair_telegram_actor(
+    services: &RebornRuntime,
+    inbound: &reborn_support::builder::RebornIntegrationHarness,
+    user: &ironclaw_host_api::ids::UserId,
+    telegram_user_id: &str,
+) {
+    let code = services
+        .pairing_mint_for_test("telegram", user)
+        .await
+        .expect("Telegram must compose a proof-code pairing service");
+    let paired = services
+        .pairing_consume_for_test(
+            "telegram",
+            TELEGRAM_INSTALLATION,
+            &code,
+            (
+                ironclaw_telegram_extension::TELEGRAM_USER_ACTOR_KIND,
+                telegram_user_id,
+                None,
+                telegram_user_id,
+            ),
+            (
+                inbound.turn_coordinator_for_test(),
+                inbound.process_gates_for_test(),
+                inbound.binding.tenant_id.clone(),
+            ),
+        )
+        .await
+        .expect("Telegram pairing consume");
+    assert_eq!(
+        paired.as_ref(),
+        Some(user),
+        "pairing must bind the Telegram actor to the IronClaw user"
+    );
 }
 
 async fn configure_admin_group(
@@ -1492,12 +1529,10 @@ async fn telegram_update_becomes_a_turn_and_a_coordinated_reply_impl(storage: St
         .expect("the production channel host assembly starts over the composed runtime");
 
     // Admin configuration is a separate tenant axis and is valid before any
-    // user installs the channel. The caller's linked-device credential is
-    // seeded at the credential seam because this delivery profile uses the
-    // real Telegram adapter (live MTProto is covered by the device-link group
-    // and full-stack run). Installation then activates without a second
-    // proof-code ceremony, and the proven Telegram identity is bound through
-    // the same generic identity hook ingress resolves.
+    // user installs the channel. Pairing then binds the proven Telegram
+    // identity through the generic identity hook ingress resolves. Linked-
+    // device auth is optional for personal tools and is not required to DM
+    // the bot.
     let lifecycle = group
         .thread("conv-telegram-delivery-lifecycle")
         .script([
@@ -1535,17 +1570,14 @@ async fn telegram_update_becomes_a_turn_and_a_coordinated_reply_impl(storage: St
     lifecycle
         .submit_turn("install telegram")
         .await
-        .expect("Telegram installs and publishes before the first user device link");
+        .expect("Telegram installs and publishes before the first user pairs");
     let telegram_binding_service =
         wait_for_production_registration(&assembly, services, "telegram").await;
     lifecycle
         .assert_tool_invoked("builtin.extension_install")
         .await
         .expect("the natural-language install turn invokes extension installation");
-    lifecycle
-        .link_device_through_product_auth("telegram", "telegram", "cloud-password")
-        .await
-        .expect("complete Telegram device link through production product auth");
+    pair_telegram_actor(services, &inbound, &paired_user, "424242").await;
     let installation_store = services
         .extension_installation_store_for_test()
         .expect("extension delivery profile carries the lifecycle store");
@@ -1558,12 +1590,16 @@ async fn telegram_update_becomes_a_turn_and_a_coordinated_reply_impl(storage: St
         .expect("Telegram installation state reads")
         .expect("Telegram installation exists after activation");
     assert!(installation.owner().visible_to(&paired_user));
+    let (pairing_code, pairing_deep_link, _) = services
+        .pairing_issue_for_test("telegram", &paired_user)
+        .await
+        .expect("Telegram must compose a proof-code pairing service");
+    assert!(!pairing_code.is_empty(), "pairing mint must return a code");
     assert!(
-        services
-            .pairing_issue_for_test("telegram", &paired_user)
-            .await
-            .is_none(),
-        "device-link Telegram must not compose a proof-code pairing service"
+        pairing_deep_link
+            .as_deref()
+            .is_some_and(|link| link.contains("t.me/") && link.contains("?start=")),
+        "pairing mint must return the bot deep link: {pairing_deep_link:?}"
     );
     let channel_connection = group
         .channel_connection()
@@ -1573,7 +1609,7 @@ async fn telegram_update_becomes_a_turn_and_a_coordinated_reply_impl(storage: St
             .caller_channel_connected("telegram", &paired_user)
             .await
             .expect("Telegram connection state reads"),
-        "the linked identity must be the Telegram channel's connected signal"
+        "the paired identity must be the Telegram channel's connected signal"
     );
 
     // Activation seam: setWebhook crossed the recorded wire with the bot
@@ -1853,16 +1889,13 @@ async fn telegram_update_becomes_a_turn_and_a_coordinated_reply_impl(storage: St
         ironclaw_host_api::ids::UserId::new("user-telegram-bravo").expect("second user id");
     // The second user joins the installation through the production
     // membership transition (what their own install/enable action performs),
-    // then their independently proven Telegram identity is bound. There is no
-    // proof-code surface for either user.
+    // then their independently proven Telegram identity is bound through
+    // pairing.
     installation_store
         .activate_membership(&installation_id, &second_user)
         .await
         .expect("second user joins the Telegram installation membership");
-    channel_connection
-        .connect_device_link_provider_user("telegram", "telegram", "9912", &second_user)
-        .await
-        .expect("second linked-device identity binds");
+    pair_telegram_actor(services, &inbound, &second_user, "9912").await;
 
     let second_topic_body = json!({
         "update_id": 550,
@@ -2470,12 +2503,11 @@ async fn telegram_unlinked_group_mention_gets_a_quoted_connect_notice() {
     );
 }
 
-/// Telegram's linked-device identity on the generic ingress route: an unbound
+/// Telegram's pairing identity on the generic ingress route: an unbound
 /// verified DM fails closed into the connect nudge instead of inheriting the
-/// operator. Persisting the proven Telegram actor identity (the same write a
-/// completed device link performs) admits the next plain DM as the linking
-/// IronClaw user, with its reply coordinated over `sendMessage`. Disconnect
-/// removes that admission; relink restores it without a proof-code route.
+/// operator. Consuming a minted pairing code admits the next plain DM as the
+/// pairing IronClaw user, with its reply coordinated over `sendMessage`.
+/// Disconnect removes that admission; pairing again restores it.
 /// Storage-mode-invariant semantics ride the libSQL case; the sibling
 /// delivery proof covers the backend matrix.
 #[rstest]
@@ -2560,7 +2592,7 @@ async fn linked_telegram_actor_turns_attribute_to_the_linking_user_and_unlink_re
     lifecycle
         .submit_turn("install telegram")
         .await
-        .expect("Telegram installs and publishes before the first user device link");
+        .expect("Telegram installs and publishes before the first user pairs");
     let channel_connection = group
         .channel_connection()
         .expect("delivery group composes production channel connection");
@@ -2660,19 +2692,16 @@ async fn linked_telegram_actor_turns_attribute_to_the_linking_user_and_unlink_re
         "a distinct conversation must receive its own nudge"
     );
 
-    // 2. Device-link completion supplies this proven provider identity. This
-    // integration profile writes it through the production generic binding
-    // hook so ingress, target backfill, and disconnect remain fully real.
-    lifecycle
-        .link_device_through_product_auth("telegram", "telegram", "cloud-password")
-        .await
-        .expect("complete Telegram device link through production product auth");
+    // 2. Pairing consume supplies this proven provider identity. This
+    // integration profile writes it through the production generic pairing
+    // service so ingress, target backfill, and disconnect remain fully real.
+    pair_telegram_actor(services, &inbound, &paired_user, "424242").await;
     assert!(
         services
             .pairing_issue_for_test("telegram", &paired_user)
             .await
-            .is_none(),
-        "Telegram device link must not compose a pairing-code service"
+            .is_some(),
+        "Telegram pairing must stay available after the first consume"
     );
     assert!(
         channel_connection
@@ -2694,10 +2723,10 @@ async fn linked_telegram_actor_turns_attribute_to_the_linking_user_and_unlink_re
         );
     }
 
-    // 3. The SAME actor's next plain DM now resolves through the linked-device
-    //    binding: a real turn admits under the linked user's scope and the
+    // 3. The SAME actor's next plain DM now resolves through the pairing
+    //    binding: a real turn admits under the paired user's scope and the
     //    reply coordinates back over sendMessage.
-    let chat_body = dm_body(605, 515151, "what can you do now that we're linked?");
+    let chat_body = dm_body(605, 515151, "what can you do now that we're paired?");
     let (vendor_scope, _) = preresolve_vendor_turn_scope(
         &telegram_binding_service,
         &ironclaw_telegram_extension::TelegramChannelAdapter::default(),
@@ -2715,7 +2744,7 @@ async fn linked_telegram_actor_turns_attribute_to_the_linking_user_and_unlink_re
     assert_eq!(
         vendor_scope.explicit_owner_user_id(),
         Some(&paired_user),
-        "post-link inbound must attribute to the linked user, not the operator fallback"
+        "post-pair inbound must attribute to the paired user, not the operator fallback"
     );
     inbound.register_scope_gateway_for_test(
         vendor_scope.clone(),
@@ -2763,9 +2792,9 @@ async fn linked_telegram_actor_turns_attribute_to_the_linking_user_and_unlink_re
     assert_telegram_chat_delivery_evidence(&delivered_messages, 615);
     assert_delivered_attempt(services, &vendor_scope).await;
 
-    // 4. Unlink through the same production connection service extension
-    // removal uses. The old actor immediately loses admission; no pairing
-    // endpoint exists to bypass the linked-device ceremony.
+    // 4. Unpair through the same production connection service extension
+    // removal uses. The old actor immediately loses admission; pairing mint
+    // remains the repair path.
     channel_connection
         .disconnect_channel("telegram", &paired_user)
         .await
@@ -2780,8 +2809,8 @@ async fn linked_telegram_actor_turns_attribute_to_the_linking_user_and_unlink_re
         services
             .pairing_issue_for_test("telegram", &paired_user)
             .await
-            .is_none(),
-        "unlink must not reveal a retired proof-code repair path"
+            .is_some(),
+        "unlink must leave the pairing repair path available"
     );
     let disconnected_text = "this must stay outside the agent after unlink";
     let status = ingress
@@ -2804,12 +2833,8 @@ async fn linked_telegram_actor_turns_attribute_to_the_linking_user_and_unlink_re
         "an unlinked Telegram actor must not admit a turn"
     );
 
-    // 5. Relinking the same proven identity restores admission. The credential
-    // was revoked by disconnect, so seed its replacement before rebinding.
-    lifecycle
-        .link_device_through_product_auth("telegram", "telegram", "cloud-password")
-        .await
-        .expect("same Telegram identity relinks through production product auth");
+    // 5. Pairing the same proven identity restores admission.
+    pair_telegram_actor(services, &inbound, &paired_user, "424242").await;
 
     // 6. The same external actor/conversation is admitted again through the
     // linked identity and coordinated delivery remains healthy.

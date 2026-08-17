@@ -158,7 +158,7 @@ Bot credentials live in `secrets.env`, not `config.toml`. After the pod is healt
 
 1. Set `TELEGRAM_BOT_TOKEN` (from BotFather) and `TELEGRAM_BOT_USERNAME` in `~/ironclaw-app/secrets/secrets.env`.
 2. Run `./ironclaw.sh telegram-setup`. That installs the Telegram extension, writes operator admin configuration, and registers the webhook. A webhook secret is generated into `secrets.env` if you leave it blank. Telegram only accepts `443`, `80`, `88`, or `8443`. If `IRONCLAW_APP_PORT` is something else (this host uses `9443`), setup registers `https://<host>:88/webhooks/extensions/telegram/updates` and you must DNAT/proxy host `:88` onto the app port — an HTTP 301/302 redirect is not enough, because Telegram will not follow it for webhook POSTs.
-3. To actually talk to the bot, each person still has to **link their Telegram account** in WebUI → Extensions → Telegram. That needs `TELEGRAM_API_ID` + `TELEGRAM_API_HASH` from [my.telegram.org](https://my.telegram.org) → API development tools (bot token alone is not enough). Put them in `secrets.env` and re-run `telegram-setup`, then complete the QR / phone link in the UI. Until that succeeds, DMs get the “link this account” notice and the install stays `setup_needed`.
+3. To actually talk to the bot, each person still has to **pair** in WebUI → Extensions → Telegram: open the link, scan the QR, or send `/start` followed by the displayed code to the bot. Bot token is enough for DMs. `TELEGRAM_API_ID` + `TELEGRAM_API_HASH` from [my.telegram.org](https://my.telegram.org) are only needed if you want the optional personal Telegram tools.
 
 ## Himalaya / Migadu mail
 

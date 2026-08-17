@@ -1518,10 +1518,10 @@ async fn user_extension_removal_does_not_erase_admin_configuration() {
 
 /// Tenant administrator configuration is consumed by the channel host but is
 /// never projected onto an ordinary caller's personal setup surface. Telegram
-/// uses its device-link setup and therefore must not expose the retired bot
-/// proof-code pairing route.
+/// channel identity is generated-code pairing, so mint must succeed while
+/// deployment secrets stay hidden from ordinary callers.
 #[tokio::test]
-async fn telegram_setup_hides_admin_configuration_and_excludes_legacy_pairing() {
+async fn telegram_setup_hides_admin_configuration_and_exposes_pairing() {
     let fixture = AdminConfigurationFixture::new("effective-consumer").await;
     let (save_status, save_body) = put_json(
         fixture.operator_router(),
@@ -1591,7 +1591,7 @@ async fn telegram_setup_hides_admin_configuration_and_excludes_legacy_pairing() 
             StatusCode::OK,
             StatusCode::OK,
             StatusCode::BAD_REQUEST,
-            StatusCode::NOT_FOUND,
+            StatusCode::OK,
         ),
         "save: {save_body}; install: {install_body}; setup: {setup_body}; list: {list_body}; \
          registry: {registry_body}; caller admin submit: {caller_admin_submit_body}; pairing: \
@@ -1642,9 +1642,17 @@ async fn telegram_setup_hides_admin_configuration_and_excludes_legacy_pairing() 
         })],
         "one linked session shared by every Telegram tool must render as one setup requirement"
     );
-    assert_eq!(
-        pairing_body["error"], "unknown_extension",
-        "device-link Telegram must not register the retired pairing service: {pairing_body}"
+    assert!(
+        pairing_body["code"]
+            .as_str()
+            .is_some_and(|code| !code.is_empty()),
+        "Telegram pairing mint must return a generated code: {pairing_body}"
+    );
+    assert!(
+        pairing_body["deep_link"]
+            .as_str()
+            .is_some_and(|link| link.contains("t.me/") && link.contains("?start=")),
+        "Telegram pairing mint must return the bot deep link: {pairing_body}"
     );
     fixture.shutdown().await;
 }

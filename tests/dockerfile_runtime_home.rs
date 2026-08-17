@@ -617,4 +617,3 @@ fn dockerfile_installs_pinned_himalaya_cli() {
         "runtime image must install a pinned Himalaya CLI for mail skills"
     );
 }
-

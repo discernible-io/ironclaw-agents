@@ -6,8 +6,9 @@
 //!    `reborn_retired_taxonomy` gate pins for Slack).
 //! 2. The Reborn context stays free of the v1 pairing surface: no
 //!    `/api/pairing/` route literals in `crates/` or the webui v2 frontend.
-//!    Telegram declares `device_link`, so its authenticated linked account is
-//!    the channel identity and no generated-code pairing service is exposed.
+//!    Telegram channel identity is `web_generated_code` under
+//!    `/api/webchat/v2/extensions/{id}/pairing/{action}`. Linked-device auth
+//!    remains optional for personal tools and is not the bot-DM ceremony.
 
 #[allow(dead_code)]
 mod ratchet_support;
@@ -171,7 +172,7 @@ fn generic_extension_lifecycle_has_no_telegram_knowledge() {
 }
 
 #[test]
-fn telegram_device_link_is_the_only_personal_channel_connection_ceremony() {
+fn telegram_pairing_is_the_personal_channel_connection_ceremony() {
     let manifest = crate_path(
         &workspace_root(),
         "crates/extensions/packages/telegram/manifest.toml",
@@ -184,14 +185,17 @@ fn telegram_device_link_is_the_only_personal_channel_connection_ceremony() {
         .expect("Telegram channel connection section");
 
     assert!(
-        channel_connection.contains("strategy = \"device_link\""),
-        "Telegram must derive channel identity from its authenticated linked device"
+        channel_connection.contains("strategy = \"web_generated_code\""),
+        "Telegram must derive channel identity from the generated-code pairing ceremony"
     );
     assert!(
-        !channel_connection.contains("web_generated_code")
-            && !channel_connection.contains("deep_link_template")
-            && !channel_connection.contains("inbound_code_prefixes"),
-        "Telegram must not retain generated-code pairing metadata"
+        channel_connection.contains("deep_link_template")
+            && channel_connection.contains("inbound_code_prefixes"),
+        "Telegram must advertise the t.me deep link and /start /pair inbound prefixes"
+    );
+    assert!(
+        !channel_connection.contains("strategy = \"device_link\""),
+        "linked-device auth is optional for personal tools and must not be the channel ceremony"
     );
 }
 

@@ -820,17 +820,33 @@ impl ExtensionLifecycleManager {
         // confirms a private credentialed install exists (#5525 review).
         ensure_caller_may_operate(&installation, caller)?;
         let package = self.lifecycle_package(&extension_id).await?;
-        let device_link_channel_setup = self.device_link_channel_setup(&extension_id);
+        let account_setup = self
+            .account_setups
+            .as_ref()
+            .and_then(|setups| setups.descriptor(&extension_id));
         let mut requirements = package_runtime_credential_auth_requirements(&package);
-        if let Some(setup) = device_link_channel_setup.as_ref() {
-            requirements
-                .retain(|requirement| !is_device_link_channel_requirement(setup, requirement));
-        } else if let Some(setups) = self.account_setups.as_ref()
+        if let Some(setup) = account_setup.as_ref() {
+            requirements.retain(|requirement| {
+                !is_device_link_tool_activation_exemption(setup, requirement)
+            });
+        }
+        if account_setup.as_ref().is_none_or(|setup| {
+            setup.connection_requirement.strategy != RebornChannelConnectStrategy::DeviceLink
+        }) && let Some(setups) = self.account_setups.as_ref()
             && let Some(requirement) = setups
                 .missing_requirement(&extension_id, caller)
                 .await
                 .map_err(map_account_setup_error)?
+            && !matches!(
+                requirement.setup,
+                RuntimeCredentialAccountSetup::Pairing | RuntimeCredentialAccountSetup::DeviceLink
+            )
         {
+            // Pairing and device-link are identity ceremonies, not stored
+            // credential accounts. Pushing them here would park install on an
+            // AuthRequired gate that can never clear. Webhook publish must
+            // succeed first so `/start <code>` (or a later device link) can
+            // complete.
             requirements.push(requirement);
         }
         // Third readiness axis: a provider whose OPERATOR-level instance
@@ -1462,9 +1478,14 @@ impl ExtensionLifecycleManager {
         if let ExtensionActivationCredentialReadiness::Missing(mut missing) =
             credential_gate.credential_readiness(&package).await?
         {
-            if let Some(setup) = self.device_link_channel_setup(&extension_id) {
-                missing
-                    .retain(|requirement| !is_device_link_channel_requirement(&setup, requirement));
+            if let Some(setup) = self
+                .account_setups
+                .as_ref()
+                .and_then(|setups| setups.descriptor(&extension_id))
+            {
+                missing.retain(|requirement| {
+                    !is_device_link_tool_activation_exemption(&setup, requirement)
+                });
             }
             if !missing.is_empty() {
                 return activation_credentials_incomplete_response(package_ref, missing);
@@ -2873,18 +2894,19 @@ pub(crate) fn activation_credentials_incomplete_response(
     Ok(response)
 }
 
-/// A device-link channel must publish its adapter before the first user can
-/// authorize that device. Its own per-user linked session therefore gates
-/// tool dispatch and channel admission, but not package activation. Matching
-/// all three authority identifiers keeps this exception from suppressing an
-/// unrelated credential declared by the same package.
-fn is_device_link_channel_requirement(
+/// A channel that also declares linked-account tools must publish its adapter
+/// before the first user can pair or authorize a device. The per-user linked
+/// session therefore gates tool dispatch, not package activation. Matching
+/// provider and requester keeps this exception from suppressing an unrelated
+/// credential declared by the same package.
+fn is_device_link_tool_activation_exemption(
     setup: &ExtensionAccountSetupDescriptor,
     requirement: &RuntimeCredentialAuthRequirement,
 ) -> bool {
-    setup.connection_requirement.strategy == RebornChannelConnectStrategy::DeviceLink
-        && setup.auth_requirement.setup == RuntimeCredentialAccountSetup::DeviceLink
-        && requirement.setup == RuntimeCredentialAccountSetup::DeviceLink
+    matches!(
+        setup.connection_requirement.strategy,
+        RebornChannelConnectStrategy::DeviceLink | RebornChannelConnectStrategy::WebGeneratedCode
+    ) && requirement.setup == RuntimeCredentialAccountSetup::DeviceLink
         && requirement.provider == setup.auth_requirement.provider
         && requirement.requester_extension == setup.auth_requirement.requester_extension
 }
@@ -3418,7 +3440,7 @@ mod tests {
     fn activation_exempts_only_the_device_link_channels_own_credential() {
         let setup = device_link_setup_descriptor("fixture", "fixture-vendor");
         let channel_requirement = setup.auth_requirement.clone();
-        assert!(is_device_link_channel_requirement(
+        assert!(is_device_link_tool_activation_exemption(
             &setup,
             &channel_requirement
         ));
@@ -3427,7 +3449,7 @@ mod tests {
             provider: VendorId::new("other-vendor").expect("provider id"),
             ..channel_requirement.clone()
         };
-        assert!(!is_device_link_channel_requirement(
+        assert!(!is_device_link_tool_activation_exemption(
             &setup,
             &unrelated_provider
         ));
@@ -3436,7 +3458,7 @@ mod tests {
             requester_extension: ExtensionId::new("other-extension").expect("extension id"),
             ..channel_requirement.clone()
         };
-        assert!(!is_device_link_channel_requirement(
+        assert!(!is_device_link_tool_activation_exemption(
             &setup,
             &unrelated_requester
         ));
@@ -3445,9 +3467,36 @@ mod tests {
             setup: RuntimeCredentialAccountSetup::ManualToken,
             ..channel_requirement
         };
-        assert!(!is_device_link_channel_requirement(
+        assert!(!is_device_link_tool_activation_exemption(
             &setup,
             &unrelated_setup
+        ));
+    }
+
+    fn pairing_channel_setup_descriptor(
+        extension_id: &str,
+        provider: &str,
+    ) -> ExtensionAccountSetupDescriptor {
+        let mut setup = device_link_setup_descriptor(extension_id, provider);
+        setup.auth_requirement.setup = RuntimeCredentialAccountSetup::Pairing;
+        setup.connection_requirement.strategy = RebornChannelConnectStrategy::WebGeneratedCode;
+        setup
+    }
+
+    #[test]
+    fn activation_exempts_linked_session_tools_on_a_pairing_channel() {
+        let setup = pairing_channel_setup_descriptor("fixture", "fixture-vendor");
+        let linked_session = RuntimeCredentialAuthRequirement {
+            setup: RuntimeCredentialAccountSetup::DeviceLink,
+            ..setup.auth_requirement.clone()
+        };
+        assert!(is_device_link_tool_activation_exemption(
+            &setup,
+            &linked_session
+        ));
+        assert!(!is_device_link_tool_activation_exemption(
+            &setup,
+            &setup.auth_requirement
         ));
     }
 

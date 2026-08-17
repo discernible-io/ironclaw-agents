@@ -149,25 +149,9 @@ export function ConfigureModal({ extension, onClose, onSaved, returnFocusTo }) {
   const isActive = extensionIsActive(extension);
   const oauthBusy = oauthMutation.isPending || oauthMutation.isAuthorizing;
   const setupUrl = httpsUrl(onboarding?.setup_url);
-  if (deviceLinkSecret && !hostedMcpAuthSelectionRequired) {
-    // Self-contained: the panel starts (or resumes) the flow, polls it, and
-    // stops on a terminal step. The modal only hosts it.
-    return (
-      <ModalShell
-        onClose={onClose}
-        returnFocusTo={returnFocusTo}
-        title={t("extensions.configureName").replace("{name}", extensionName)}
-      >
-        <DeviceLinkPanel
-          provider={deviceLinkSecret.provider}
-          extensionName={packageId}
-          displayName={extensionName}
-          onCompleted={handleDeviceLinkCompleted}
-        />
-      </ModalShell>
-    );
-  }
-
+  // A pairing channel that also declares linked-account tools still has a
+  // device-link credential. Channel identity is the minted code, so the
+  // pairing panel wins; device-link stays available for tools after connect.
   if (isWebCodeChannel && !hostedMcpAuthSelectionRequired) {
     // The panel is self-contained (mints/rotates codes, polls status,
     // broadcasts channel-connected on pairing), so the modal only hosts it.
@@ -182,6 +166,25 @@ export function ConfigureModal({ extension, onClose, onSaved, returnFocusTo }) {
           displayName={extensionName}
           instructions={connection?.instructions || ""}
           compact
+        />
+      </ModalShell>
+    );
+  }
+
+  if (deviceLinkSecret && !hostedMcpAuthSelectionRequired) {
+    // Self-contained: the panel starts (or resumes) the flow, polls it, and
+    // stops on a terminal step. The modal only hosts it.
+    return (
+      <ModalShell
+        onClose={onClose}
+        returnFocusTo={returnFocusTo}
+        title={t("extensions.configureName").replace("{name}", extensionName)}
+      >
+        <DeviceLinkPanel
+          provider={deviceLinkSecret.provider}
+          extensionName={packageId}
+          displayName={extensionName}
+          onCompleted={handleDeviceLinkCompleted}
         />
       </ModalShell>
     );

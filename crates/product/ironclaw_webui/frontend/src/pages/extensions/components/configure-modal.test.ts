@@ -915,7 +915,47 @@ test("ConfigureModal starts the OAuth flow when the popup pre-open succeeds", ()
   );
 });
 
-test("ConfigureModal routes a device-link credential to the link panel, never a paste box", () => {
+test("ConfigureModal prefers pairing over device-link when a channel declares both", () => {
+  const view = renderModal({
+    surfaces: [
+      {
+        kind: "channel",
+        inbound: true,
+        outbound: true,
+        connection: { strategy: "web_generated_code" },
+      },
+    ],
+    packageRef: { kind: "extension", id: "telegram" },
+    displayName: "Telegram",
+    installationState: "setup_needed",
+    setupResult: {
+      secrets: [
+        {
+          name: "telegram_linked_session",
+          provider: "telegram",
+          prompt: "Link your Telegram account",
+          provided: false,
+          setup: { kind: "device_link" },
+        },
+      ],
+      fields: [],
+      isLoading: false,
+      error: null,
+    },
+  });
+
+  assert.equal(
+    renderedContainsComponent(view.rendered, view.PairingWebCodePanel),
+    true,
+    "channel identity is the minted pairing code even when tools also declare device-link",
+  );
+  assert.equal(
+    renderedContainsComponent(view.rendered, view.DeviceLinkPanel),
+    false,
+    "device-link must not steal Configure from a web-generated-code channel",
+  );
+});
+
   // `RebornExtensionCredentialSetup::DeviceLink` has no secret for the user to
   // paste: the vendor issues the payload and the host takes custody of the
   // resulting session. Falling back to the manual-token form here would ask

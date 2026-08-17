@@ -1394,15 +1394,14 @@ mod tests {
             "model-visible search must still identify Telegram as a channel: {telegram}"
         );
         assert!(
-            telegram.get("channel_connection").is_none(),
-            "model-visible search must strip device-link connection chrome: {telegram}"
+            telegram.get("channel_connection").is_some(),
+            "model-visible search must keep Telegram's generated-code pairing recipe: {telegram}"
         );
         let telegram_wire = serde_json::to_string(&search).expect("search response serializes");
-        for retired_pairing_copy in ["IronClaw pairing panel", "/start", "displayed code"] {
+        for pairing_copy in ["IronClaw pairing panel", "/start", "displayed code"] {
             assert!(
-                !telegram_wire.contains(retired_pairing_copy),
-                "device-link Telegram search must not revive retired proof-code copy \
-                 {retired_pairing_copy:?}: {telegram}"
+                telegram_wire.contains(pairing_copy),
+                "Telegram search must advertise pairing copy {pairing_copy:?}: {telegram}"
             );
         }
     }

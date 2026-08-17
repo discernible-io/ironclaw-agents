@@ -24,8 +24,8 @@ use url::Url;
 use crate::FirstPartyCapabilityError;
 
 use super::{
-    FIRST_PARTY_DEFAULT_OUTPUT_BYTES, FIRST_PARTY_MAX_OUTPUT_BYTES, first_party_capability_manifest,
-    input_error,
+    FIRST_PARTY_DEFAULT_OUTPUT_BYTES, FIRST_PARTY_MAX_OUTPUT_BYTES,
+    first_party_capability_manifest, input_error,
 };
 
 pub const IDCP_CAPABILITY_ID: &str = "builtin.idcp";
@@ -97,10 +97,9 @@ pub(super) async fn dispatch(input: &Value) -> Result<Value, FirstPartyCapabilit
         .or(optional_string(input, "apiEndpoint")?)
         .or(optional_string(input, "api_endpoint")?);
     let plan = match op {
-        "ensure_session" | "ensure-session" => HelperCall::post(
-            "/v1/ensure_session",
-            ensure_body_with_base(base.as_deref()),
-        ),
+        "ensure_session" | "ensure-session" => {
+            HelperCall::post("/v1/ensure_session", ensure_body_with_base(base.as_deref()))
+        }
         "list_sessions" | "list-sessions" => HelperCall::get("/v1/sessions"),
         "me" => {
             if let Some(api) = base.as_deref() {
@@ -180,12 +179,12 @@ pub(super) async fn dispatch(input: &Value) -> Result<Value, FirstPartyCapabilit
             "detail": detail,
             "hint": "Operator: ensure the ironclaw-identyclaw sidecar is running and IDENTYCLAW_HELPER_BASE points at it"
         })),
-        Err(HelperError::InvalidBase { detail }) => Err(
-            FirstPartyCapabilityError::with_safe_summary(
+        Err(HelperError::InvalidBase { detail }) => {
+            Err(FirstPartyCapabilityError::with_safe_summary(
                 RuntimeDispatchErrorKind::OperationFailed,
                 format!("invalid IDENTYCLAW_HELPER_BASE: {detail}"),
-            ),
-        ),
+            ))
+        }
         Err(HelperError::BadResponse { detail }) => Ok(json!({
             "ok": false,
             "error": "identyclaw_helper_bad_response",
@@ -256,9 +255,12 @@ async fn call_helper(plan: &HelperCall) -> Result<Value, HelperError> {
             .json(body);
     }
 
-    let response = request.send().await.map_err(|err| HelperError::Unreachable {
-        detail: truncate_detail(&err.to_string()),
-    })?;
+    let response = request
+        .send()
+        .await
+        .map_err(|err| HelperError::Unreachable {
+            detail: truncate_detail(&err.to_string()),
+        })?;
     let status = response.status().as_u16();
     let bytes = response
         .bytes()
@@ -282,8 +284,7 @@ async fn call_helper(plan: &HelperCall) -> Result<Value, HelperError> {
         // Helper returns JSON error bodies on 4xx/5xx — surface them redacted.
         return Ok(match parsed {
             Value::Object(mut map) => {
-                map.entry("ok".to_string())
-                    .or_insert(Value::Bool(false));
+                map.entry("ok".to_string()).or_insert(Value::Bool(false));
                 map.insert("http_status".into(), json!(status));
                 Value::Object(map)
             }
