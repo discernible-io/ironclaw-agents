@@ -14,8 +14,12 @@ use reborn_support::group::RebornIntegrationGroup;
 use reborn_support::reply::RebornScriptedReply;
 use serde_json::json;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn extension_search_advertises_generated_code_pairing_for_telegram() {
+    Box::pin(extension_search_advertises_generated_code_pairing_for_telegram_impl()).await;
+}
+
+async fn extension_search_advertises_generated_code_pairing_for_telegram_impl() {
     let group = RebornIntegrationGroup::extension_delivery()
         .await
         .expect("extension-delivery group builds with the Telegram manifest");
