@@ -144,14 +144,21 @@ def apply() -> None:
         "TELEGRAM_WEBHOOK_SECRET",
         _env("TELEGRAM_WEBHOOK_SECRET", "IRONCLAW_REBORN_TELEGRAM_WEBHOOK_SECRET"),
     )
-    base_url = _env("IRONCLAW_REBORN_WEBUI_BASE_URL").rstrip("/")
     webhook_url = _env("TELEGRAM_WEBHOOK_URL", "IRONCLAW_REBORN_TELEGRAM_WEBHOOK_URL")
     if not webhook_url:
-        if not base_url:
-            host, port, _token = _host_port()
-            base_url = f"https://{host}:{port}"
-        webhook_url = f"{base_url}{WEBHOOK_PATH}"
+        host, port, _token = _host_port()
+        telegram_ports = {"443", "80", "88", "8443"}
+        if port in telegram_ports:
+            base_url = _env("IRONCLAW_REBORN_WEBUI_BASE_URL").rstrip("/")
+            if not base_url:
+                base_url = f"https://{host}:{port}"
+            webhook_url = f"{base_url}{WEBHOOK_PATH}"
+        else:
+            webhook_port = _env("TELEGRAM_WEBHOOK_PORT") or "88"
+            webhook_url = f"https://{host}:{webhook_port}{WEBHOOK_PATH}"
     allowed = _env("TELEGRAM_ALLOWED_CHANNELS", "IRONCLAW_REBORN_TELEGRAM_ALLOWED_CHANNELS")
+    api_id = _env("TELEGRAM_API_ID", "IRONCLAW_REBORN_TELEGRAM_API_ID")
+    api_hash = _env("TELEGRAM_API_HASH", "IRONCLAW_REBORN_TELEGRAM_API_HASH")
 
     values = {
         "telegram_bot_token": bot_token,
@@ -161,6 +168,10 @@ def apply() -> None:
     }
     if allowed:
         values["telegram_allowed_channels"] = allowed
+    if api_id:
+        values["telegram_api_id"] = api_id
+    if api_hash:
+        values["telegram_api_hash"] = api_hash
 
     status, listed = _api("GET", "/api/webchat/v2/extensions")
     if status < 200 or status >= 300:

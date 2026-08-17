@@ -357,8 +357,24 @@ cmd_telegram_setup() {
 
   webhook_url="${TELEGRAM_WEBHOOK_URL:-${IRONCLAW_REBORN_TELEGRAM_WEBHOOK_URL:-}}"
   if [[ -z "$webhook_url" ]]; then
-    webhook_url="${IRONCLAW_REBORN_WEBUI_BASE_URL%/}/webhooks/extensions/telegram/updates"
+    local public_host app_port webhook_port allowed
+    public_host="$(ironclaw_tier_domain)"
+    app_port="$(ironclaw_tier_port)"
+    allowed=" 443 80 88 8443 "
+    if [[ "$allowed" == *" ${app_port} "* ]]; then
+      webhook_url="${IRONCLAW_REBORN_WEBUI_BASE_URL%/}/webhooks/extensions/telegram/updates"
+      if [[ -z "${IRONCLAW_REBORN_WEBUI_BASE_URL:-}" ]]; then
+        webhook_url="https://${public_host}:${app_port}/webhooks/extensions/telegram/updates"
+      fi
+    else
+      webhook_port="${TELEGRAM_WEBHOOK_PORT:-88}"
+      webhook_url="https://${public_host}:${webhook_port}/webhooks/extensions/telegram/updates"
+      echo "IRONCLAW_APP_PORT=${app_port} is not a Telegram-allowed webhook port (443, 80, 88, 8443)."
+      echo "Registering webhook on :${webhook_port} instead. Host must DNAT/proxy that port to ${app_port}."
+    fi
+    _ironclaw_upsert_secrets_var "$secrets" TELEGRAM_WEBHOOK_URL "$webhook_url"
     export TELEGRAM_WEBHOOK_URL="$webhook_url"
+    echo "Wrote TELEGRAM_WEBHOOK_URL=${webhook_url} to secrets.env"
   fi
 
   command -v python3 >/dev/null 2>&1 || {
@@ -367,8 +383,8 @@ cmd_telegram_setup() {
   }
   echo "==> Applying Telegram admin configuration via WebUI operator API"
   python3 "$ROOT/scripts/apply-telegram-admin-config.py"
-  echo "Telegram bot is configured. Pair your account from WebUI Extensions → Telegram"
-  echo "(mint a code, then open the link or send it to the bot). There is no CLI approve step."
+  echo "Telegram bot is configured. Link your personal Telegram account from WebUI → Extensions → Telegram"
+  echo "(QR or phone). That needs TELEGRAM_API_ID + TELEGRAM_API_HASH from my.telegram.org."
 }
 
 cmd_chat() {

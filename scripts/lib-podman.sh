@@ -256,8 +256,10 @@ ironclaw_ensure_telegram_env_template() {
     echo "# TELEGRAM_BOT_TOKEN="
     echo "# TELEGRAM_BOT_USERNAME=YourBot"
     echo "# TELEGRAM_WEBHOOK_SECRET="
-    echo "# TELEGRAM_WEBHOOK_URL="
+    echo "# TELEGRAM_WEBHOOK_URL=                  # if APP_PORT is not 443/80/88/8443, telegram-setup uses :88"
     echo "# TELEGRAM_ALLOWED_CHANNELS="
+    echo "# TELEGRAM_API_ID=                       # my.telegram.org — required to link a personal account"
+    echo "# TELEGRAM_API_HASH="
   } >>"$secrets"
   chmod 600 "$secrets" 2>/dev/null || true
   echo "Appended Telegram placeholders to secrets.env"
