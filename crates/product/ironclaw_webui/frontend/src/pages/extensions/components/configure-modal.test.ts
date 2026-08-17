@@ -956,6 +956,7 @@ test("ConfigureModal prefers pairing over device-link when a channel declares bo
   );
 });
 
+test("ConfigureModal routes a device-link credential to the link panel, never a paste box", () => {
   // `RebornExtensionCredentialSetup::DeviceLink` has no secret for the user to
   // paste: the vendor issues the payload and the host takes custody of the
   // resulting session. Falling back to the manual-token form here would ask
