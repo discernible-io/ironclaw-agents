@@ -176,6 +176,16 @@ fn reborn_dockerfile_uses_feature_matched_cache_and_loopback_default() {
         "cargo chef cook must target the Reborn CLI package"
     );
     assert!(
+        dockerfile.contains("id=ironclaw-cargo-target")
+            && dockerfile.contains("CARGO_TARGET_DIR=/cache/cargo-target")
+            && dockerfile.contains(".ironclaw-seeded"),
+        "builder must persist cargo target artifacts across source-only rebuilds without overlaying chef's /app/target"
+    );
+    assert!(
+        dockerfile.contains("COPY --from=builder /out/ironclaw /usr/local/bin/ironclaw"),
+        "runtime must copy the dist binary from a non-cache path because cache mounts are not in the image"
+    );
+    assert!(
         dockerfile.contains("IRONCLAW_REBORN_SERVE_HOST=127.0.0.1"),
         "image default serve host must stay loopback; Railway should override to 0.0.0.0"
     );

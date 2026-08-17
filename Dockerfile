@@ -1,7 +1,11 @@
+# syntax=docker/dockerfile:1
 # Multi-stage Dockerfile for the standalone Reborn CLI HTTP service.
 #
 # Build:
 #   docker build -f Dockerfile -t ironclaw-reborn:latest .
+# Local `./ironclaw.sh start --build` reuses Buildah/Podman cache mounts so
+# unchanged crates are not rebuilt. The dist binary is copied out of the mount
+# because cache contents are not part of the image.
 #
 # Run locally:
 #   docker run --rm --env-file .env.reborn -p 127.0.0.1:3000:3000 ironclaw-reborn:latest
@@ -106,10 +110,21 @@ WORKDIR /app/crates/product/ironclaw_webui/frontend
 RUN pnpm install --frozen-lockfile
 WORKDIR /app
 
-RUN cargo build \
-    --profile dist \
-    --package ironclaw \
-    --bin ironclaw
+# Persist `target/` across source-only rebuilds. Overlaying `/app/target`
+# would hide cargo-chef's cooked deps on a cold cache (CI/Railway), so the
+# mount lives at `/cache/cargo-target` and is seeded from `/app/target` once.
+# Later builds skip that seed so dummy chef crates cannot clobber real ones.
+RUN --mount=type=cache,id=ironclaw-cargo-target,sharing=locked,target=/cache/cargo-target \
+    mkdir -p /out /cache/cargo-target \
+    && if [ ! -f /cache/cargo-target/.ironclaw-seeded ]; then \
+         cp -a /app/target/. /cache/cargo-target/; \
+         touch /cache/cargo-target/.ironclaw-seeded; \
+       fi \
+    && CARGO_TARGET_DIR=/cache/cargo-target cargo build \
+        --profile dist \
+        --package ironclaw \
+        --bin ironclaw \
+    && cp /cache/cargo-target/dist/ironclaw /out/ironclaw
 
 FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818 AS runtime
 
@@ -130,7 +145,7 @@ RUN curl -fsSL \
     && chmod 755 /usr/local/bin/himalaya \
     && himalaya --version
 
-COPY --from=builder /app/target/dist/ironclaw /usr/local/bin/ironclaw
+COPY --from=builder /out/ironclaw /usr/local/bin/ironclaw
 COPY --from=railway_cli /usr/local/bin/railway /usr/local/bin/railway
 COPY docker/reborn/config.toml /opt/ironclaw/reborn/config.toml
 COPY docker/reborn/config.hosted-single-tenant.toml /opt/ironclaw/reborn/config.hosted-single-tenant.toml

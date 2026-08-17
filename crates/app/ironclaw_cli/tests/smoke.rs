@@ -340,8 +340,8 @@ fn dockerfile_reborn_builds_without_backend_feature_flags() {
     assert_no_removed_backend_cargo_features(&dockerfile, "Dockerfile");
     assert!(
         dockerfile.contains("--bin ironclaw")
-            && dockerfile
-                .contains("COPY --from=builder /app/target/dist/ironclaw /usr/local/bin/ironclaw"),
+            && dockerfile.contains("/cache/cargo-target/dist/ironclaw")
+            && dockerfile.contains("COPY --from=builder /out/ironclaw /usr/local/bin/ironclaw"),
         "Dockerfile must build and copy the canonical ironclaw binary: {dockerfile}"
     );
     assert!(
