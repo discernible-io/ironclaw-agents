@@ -8,9 +8,9 @@
 #   init                 Create ironclaw-app layout + seed secrets.env from template
 #   generate-certs       Self-signed TLS PEMs into ironclaw-app/certs/
 #   build-image          Build ironclaw-reborn + nginx (+ identyclaw helper) images
-#   start [--build]      Recreate pod (reuse images; pass --build to rebuild first)
+#   start [--build]      Recreate pod (always rebuild nginx; reuse Reborn unless --build)
 #   stop                 Stop/remove pod
-#   restart              stop + start (reuse images)
+#   restart              stop + start (always rebuild nginx; reuse Reborn unless --build)
 #   status               Podman ps + health probe
 #   logs [reborn|nginx|identyclaw]  Follow container logs (default: reborn)
 #   token                Print IRONCLAW_REBORN_WEBUI_TOKEN from secrets.env
@@ -104,14 +104,27 @@ identyclaw_image_ref() {
   echo "localhost/ironclaw-identyclaw:$(image_tag)"
 }
 
+# Nginx listen port is baked from IRONCLAW_APP_PORT at image build time.
+# Always rebuild on start so ironclaw-app port overrides (e.g. 9443) stick.
+build_nginx_image() {
+  local tag nginx_env port
+  tag="$(image_tag)"
+  nginx_env="$(ironclaw_nginx_build_env)"
+  port="$(ironclaw_tier_port)"
+  echo "==> Building localhost/ironclaw-nginx:${tag} (NODE_ENV=${nginx_env}, port=${port})"
+  podman build --layers \
+    -f "$ROOT/nginx.Dockerfile" \
+    --build-arg "NODE_ENV=${nginx_env}" \
+    --build-arg "INGRESS_PORT=${port}" \
+    -t "localhost/ironclaw-nginx:${tag}" \
+    "$ROOT"
+}
+
 cmd_build_image() {
   require_podman
   ironclaw_load_secrets
-  local tag tier port nginx_env
+  local tag
   tag="$(image_tag)"
-  tier="$(ironclaw_deploy_tier)"
-  port="$(ironclaw_tier_port)"
-  nginx_env="$(ironclaw_nginx_build_env)"
   # --layers keeps intermediate stages (chef cook) reusable. Do not pass
   # --no-cache unless deliberately busting. Dockerfile also uses
   # Buildah cache mounts for cargo registry/target + pnpm so source-only
@@ -121,13 +134,7 @@ cmd_build_image() {
     -f "$ROOT/Dockerfile" \
     -t "localhost/ironclaw-reborn:${tag}" \
     "$ROOT"
-  echo "==> Building localhost/ironclaw-nginx:${tag} (NODE_ENV=${nginx_env}, port=${port})"
-  podman build --layers \
-    -f "$ROOT/nginx.Dockerfile" \
-    --build-arg "NODE_ENV=${nginx_env}" \
-    --build-arg "INGRESS_PORT=${port}" \
-    -t "localhost/ironclaw-nginx:${tag}" \
-    "$ROOT"
+  build_nginx_image
   echo "==> Building localhost/ironclaw-identyclaw:${tag}"
   podman build --layers \
     -f "$ROOT/deploy/identyclaw/Containerfile" \
@@ -216,12 +223,13 @@ cmd_start() {
     case "$arg" in
       --build) do_build=1 ;;
       --skip-build)
-        # Deprecated no-op: start reuses images by default.
+        # Deprecated no-op: start always rebuilds nginx; Reborn is still reused.
         ;;
       -h|--help)
         echo "Usage: ./ironclaw.sh start [--build]"
-        echo "  Recreate the pod from existing images."
-        echo "  --build   Rebuild images first (same as build-image + start)."
+        echo "  Recreate the pod. Always rebuilds the nginx sidecar (listen port"
+        echo "  is baked from IRONCLAW_APP_PORT). Reuses the Reborn image unless --build."
+        echo "  --build   Rebuild all images first (same as build-image + start)."
         return 0
         ;;
       *)
@@ -231,14 +239,17 @@ cmd_start() {
         ;;
     esac
   done
+  ironclaw_load_secrets
   if [[ "$do_build" -eq 1 ]]; then
     cmd_build_image
-  elif ! podman image exists "localhost/ironclaw-reborn:${tag}" \
-    || ! podman image exists "localhost/ironclaw-nginx:${tag}"; then
-    echo "Missing images for tag '${tag}'." >&2
-    echo "Run: ./ironclaw.sh build-image   # or: ./ironclaw.sh start --build" >&2
-    echo "Or retag an existing build: podman tag localhost/ironclaw-reborn:<old> localhost/ironclaw-reborn:${tag}" >&2
-    exit 1
+  else
+    if ! podman image exists "localhost/ironclaw-reborn:${tag}"; then
+      echo "Missing image: localhost/ironclaw-reborn:${tag}" >&2
+      echo "Run: ./ironclaw.sh build-image   # or: ./ironclaw.sh start --build" >&2
+      echo "Or retag an existing build: podman tag localhost/ironclaw-reborn:<old> localhost/ironclaw-reborn:${tag}" >&2
+      exit 1
+    fi
+    build_nginx_image
   fi
   LOCAL_TAG="$tag" TARGET="${TARGET:-}" APP_DIR="$(ironclaw_app_dir)" \
     IDENTYCLAW_IMAGE="$(identyclaw_image_ref)" \
