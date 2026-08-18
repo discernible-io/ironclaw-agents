@@ -9,7 +9,7 @@ COPY src ./src
 
 # Prefer registry @rodit/rodit-auth-be when available; wire login works without it.
 RUN npm install --omit=dev \
-  && (npm install --omit=dev @rodit/rodit-auth-be@9.14.1 || true) \
+  && (npm install --omit=dev @rodit/rodit-auth-be@9.15.0 || true) \
   && npm install --omit=dev --prefix ./vendor/hola-client \
   && npm install --omit=dev
 

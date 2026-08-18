@@ -169,7 +169,7 @@ cmd_identyclaw_init() {
       (cd "$rodit_src" && npm install --omit=dev) || true
       (cd "$ROOT/deploy/identyclaw" && npm install --omit=dev --install-links "$rodit_src") || true
     else
-      (cd "$ROOT/deploy/identyclaw" && npm install --omit=dev "@rodit/rodit-auth-be@9.14.1") || true
+      (cd "$ROOT/deploy/identyclaw" && npm install --omit=dev "@rodit/rodit-auth-be@9.15.0") || true
     fi
     # Ensure wire-login deps remain after optional SDK install
     (cd "$ROOT/deploy/identyclaw" && npm install --omit=dev) || true
