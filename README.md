@@ -2,24 +2,41 @@
   <img src="ironclaw.png?v=2" alt="IronClaw" width="200"/>
 </p>
 
-<h1 align="center">IronClaw</h1>
+# IronClaw
+
+**This is [Discernible](https://www.discernible.io/)'s fork of
+[NEAR AI IronClaw](https://github.com/nearai/ironclaw).**
+Upstream remains the Reborn agent runtime (CLI, WebUI, WASM sandbox, skills,
+channels). This checkout adds a rootless **Podman** operator and **IdentyClaw
+Passport** identity so the agent can onboard at
+[api.identyclaw.com](https://api.identyclaw.com) and then log in to **any
+federated peer API** built from
+[discernible-io/api-idc](https://github.com/discernible-io/api-idc) — for
+example [api.lastcradle.io](https://api.lastcradle.io) — **with no API key and
+no extra credentials**. The Passport *is* the credential.
+
+| | [nearai/ironclaw](https://github.com/nearai/ironclaw) (upstream) | This fork ([discernible-io/ironclaw-idc](https://github.com/discernible-io/ironclaw-idc)) |
+|---|---|---|
+| Agent runtime | `ironclaw` from source / releases | Same Reborn core — we do not fork the agent loop |
+| Host install | `cargo run`, manual config | Rootless **Podman** via [`./ironclaw.sh`](deploy/podman/README.md) |
+| Runtime state | `$IRONCLAW_REBORN_HOME` | Sibling `../ironclaw-app/` (`./ironclaw.sh init`) |
+| Agent identity | Not included | IdentyClaw Passport + `idcp` / `builtin.idcp` |
+| Calling peer APIs | Vendor API keys in env | Prove Passport key possession; peer mints a JWT. No API keys. |
+| TLS ingress | Bring your own | nginx sidecar + optional Let's Encrypt |
+
+Operator reference: [`deploy/podman/README.md`](deploy/podman/README.md). Product overview:
+[discernible.io](https://www.discernible.io/). Enrollment contract:
+[guide:enrollment](https://api.identyclaw.com/.well-known/enrollment). Purchase:
+[purchase.identyclaw.com](https://purchase.identyclaw.com).
+
+If you only want stock IronClaw, use
+[upstream](https://github.com/nearai/ironclaw). The rest of this README still
+describes the NEAR agent; skip to
+[IdentyClaw Passport](#identyclaw-passport-discernible) for the fork-specific
+path.
 
 <p align="center">
   <strong>Your secure personal AI assistant, always on your side</strong>
-</p>
-
-<p align="center">
-  <strong>This is <a href="https://www.discernible.io/">Discernible</a>'s fork of
-  <a href="https://github.com/nearai/ironclaw">NEAR AI IronClaw</a>.</strong>
-  Upstream remains the Reborn agent runtime (CLI, WebUI, WASM sandbox, skills,
-  channels). This checkout adds a rootless <strong>Podman</strong> operator and
-  <strong>IdentyClaw Passport</strong> identity so the agent can onboard at
-  <a href="https://api.identyclaw.com">api.identyclaw.com</a> and then log in to
-  <strong>any federated peer API</strong> built from
-  <a href="https://github.com/discernible-io/api-idc">discernible-io/api-idc</a>
-  — for example <a href="https://api.lastcradle.io">api.lastcradle.io</a> —
-  <strong>with no API key and no extra credentials</strong>. The Passport
-  <em>is</em> the credential.
 </p>
 
 <p align="center">
@@ -39,41 +56,17 @@
   <a href="README.ko.md">한국어</a>
 </p>
 
-<p align="center">
-  <a href="#this-fork-discernible">This fork</a> •
-  <a href="#identyclaw-passport-discernible">IdentyClaw</a> •
-  <a href="#ironclaw-reborn-quick-start">Reborn Quick Start</a> •
-  <a href="#philosophy">Philosophy</a> •
-  <a href="#features">Features</a> •
-  <a href="#installation">Installation</a> •
-  <a href="#configuration">Configuration</a> •
-  <a href="#security">Security</a> •
-  <a href="#architecture">Architecture</a>
-</p>
+IronClaw is built on a simple principle: **your AI assistant should work for you, not against you**. Data stays local and encrypted; tools run in a WASM sandbox; capabilities expand without waiting on a vendor.
+
+<table>
+<tr><td><b>Security first</b></td><td>WASM sandbox with capability permissions, credential injection at the host boundary, prompt-injection defense, and endpoint allowlisting.</td></tr>
+<tr><td><b>Always available</b></td><td>REPL, WebUI, Telegram/Slack and other channels, routines, heartbeats, and parallel jobs from one runtime.</td></tr>
+<tr><td><b>Self-expanding</b></td><td>Describe a tool and IronClaw builds it as WASM; connect MCP servers; drop in plugins without restarting.</td></tr>
+<tr><td><b>Persistent memory</b></td><td>Hybrid full-text + vector search, workspace filesystem, and identity files that survive across sessions.</td></tr>
+<tr><td><b>Runs where you deploy</b></td><td>Local <code>cargo run</code>, production PostgreSQL, or this fork’s rootless Podman operator with TLS.</td></tr>
+</table>
 
 ---
-
-## This fork (Discernible)
-
-| | [nearai/ironclaw](https://github.com/nearai/ironclaw) (upstream) | This fork ([discernible-io/ironclaw-idc](https://github.com/discernible-io/ironclaw-idc)) |
-|---|---|---|
-| Agent runtime | `ironclaw-reborn` from source / releases | Same Reborn core — we do not fork the agent loop |
-| Host install | `cargo run`, manual config | Rootless **Podman** via [`./ironclaw.sh`](deploy/podman/README.md) |
-| Runtime state | `$IRONCLAW_REBORN_HOME` | Sibling `../ironclaw-app/` (`./ironclaw.sh init`) |
-| Agent identity | Not included | IdentyClaw Passport + `idcp` / `builtin.idcp` |
-| Calling peer APIs | Vendor API keys in env | Prove Passport key possession; peer mints a JWT. No API keys. |
-| TLS ingress | Bring your own | nginx sidecar + optional Let's Encrypt |
-
-Operator reference: [`deploy/podman/README.md`](deploy/podman/README.md). Product overview:
-[discernible.io](https://www.discernible.io/). Enrollment contract:
-[guide:enrollment](https://api.identyclaw.com/.well-known/enrollment). Purchase:
-[purchase.identyclaw.com](https://purchase.identyclaw.com).
-
-If you only want stock IronClaw, use
-[upstream](https://github.com/nearai/ironclaw). The rest of this README still
-describes the NEAR agent; skip to
-[IdentyClaw Passport](#identyclaw-passport-discernible) for the fork-specific
-path.
 
 ## IdentyClaw Passport (Discernible)
 
@@ -109,15 +102,9 @@ to the model.
               (prove key possession; no API key)
 ```
 
-Every path starts with a NEAR account and a Passport mint — you do not register
-with IdentyClaw to exist. Product overview and get-started:
-[www.discernible.io](https://www.discernible.io); purchase portal:
-[purchase.identyclaw.com](https://purchase.identyclaw.com); API/docs MCP:
-[api.identyclaw.com](https://api.identyclaw.com).
-
 | Piece | Role |
 | --- | --- |
-| **`builtin.idcp`** | First-party capability (same class as `builtin.http`) compiled into `ironclaw-reborn` |
+| **`builtin.idcp`** | First-party capability (same class as `builtin.http`) compiled into `ironclaw` |
 | **`skills/identyclaw/`** | Runtime skill that steers the model to prefer that capability |
 | **Helper sidecar** | Loopback-only Node service that holds NEAR Passport keys and JWTs (`deploy/identyclaw/`) |
 | **`./ironclaw.sh idcp`** | Host operator CLI (aliases: `identyclaw`) |
@@ -127,13 +114,9 @@ Agent turn → builtin.idcp → http://127.0.0.1:3921 (helper) → api.identycla
 ```
 
 Passport private keys and full JWTs never reach the model. The helper injects
-Bearer tokens; `builtin.idcp` returns redacted JSON only.
-
-On processless profiles such as `hosted-single-tenant-volume`
-(`process_backend=none`), prefer **`builtin.idcp`** — it declares only
-`DispatchCapability`, so it stays visible when `builtin.shell` does not. On
-shell-enabled profiles the `idcp` CLI on `PATH` (`/opt/idcp/bin/idcp` in the
-Podman pod) is an optional alternative with the same verbs.
+Bearer tokens; `builtin.idcp` returns redacted JSON only. On processless profiles
+such as `hosted-single-tenant-volume`, prefer **`builtin.idcp`** — it stays
+visible when `builtin.shell` does not.
 
 Checkout is a **human** step. Keep NEAR private keys on disk only — never paste
 them into chat. LLM providers (OpenAI, OpenRouter, NEAR AI, …) are a separate
@@ -327,91 +310,64 @@ IdentyClaw enrollment MCP `doc:reference:enrollment` /
 
 ---
 
-## IronClaw Reborn Quick Start
+## Quick Start
 
 > **This fork:** for HTTPS Podman deploy with IdentyClaw Passport, start with
-> [IdentyClaw Passport (Discernible)](#identyclaw-passport-discernible) above.
-> The section below documents upstream-style `cargo run` development.
+> [IdentyClaw Passport (Discernible)](#identyclaw-passport-discernible) above
+> (`./ironclaw.sh`). The section below is upstream-style `cargo run` development.
 
-IronClaw Reborn is the standalone runtime on the `reborn-integration` branch.
-It uses the separate `ironclaw-reborn` binary from the
-`ironclaw_reborn_cli` package and a separate Reborn state root. It does not use
-the legacy `ironclaw` state directory as its config root.
+The shipping binary is **`ironclaw`** (package `ironclaw` in
+`crates/app/ironclaw_cli`). Default state root:
+`$HOME/.ironclaw/reborn` (`IRONCLAW_REBORN_HOME`).
 
-For the older `ironclaw` binary, see [Installation](#installation) and
-[IronClaw Usage](#ironclaw-usage).
-
-### Build or run the binary
-
-From the repo root:
+### Build or run
 
 ```bash
-cargo run -q -p ironclaw_reborn_cli --bin ironclaw-reborn -- --help
+cargo run -q -p ironclaw -- --help
 ```
 
-Or build it first:
+Or build first:
 
 ```bash
-cargo build -p ironclaw_reborn_cli --bin ironclaw-reborn
-./target/debug/ironclaw-reborn --help
+cargo build -p ironclaw
+./target/debug/ironclaw --help
 ```
 
-The default Reborn home is `$HOME/.ironclaw/reborn`. Override it with an
-absolute path when you want isolated state:
+Isolated state for local experiments:
 
 ```bash
 export IRONCLAW_REBORN_HOME="$PWD/.reborn-home"
-cargo run -q -p ironclaw_reborn_cli --bin ironclaw-reborn -- config path
+cargo run -q -p ironclaw -- config path
 ```
 
-`config path` and `doctor` are safe diagnostics; they report the resolved home,
-profile, `config.toml`, `providers.json`, and `v1_state: not-used`.
-They do not create Reborn state or seed config files.
+`config path` and `doctor` are safe diagnostics; they do not create state or
+seed config files.
 
 ### Configure the model route
 
-The CLI-native way to configure Reborn's default model route is:
-
 ```bash
 export IRONCLAW_REBORN_HOME="$PWD/.reborn-home"
-cargo run -q -p ironclaw_reborn_cli --bin ironclaw-reborn -- models set-provider openai --model gpt-5-mini
+cargo run -q -p ironclaw -- models set-provider openai --model gpt-5-mini
+cargo run -q -p ironclaw -- models status
 ```
 
 That writes `$IRONCLAW_REBORN_HOME/config.toml` with `[llm.default]` and the
-provider's credential env-var name. Check it with:
-
-```bash
-cargo run -q -p ironclaw_reborn_cli --bin ironclaw-reborn -- models status
-cargo run -q -p ironclaw_reborn_cli --bin ironclaw-reborn -- models list openai
-```
-
-For OpenAI, set the secret value in the environment before starting:
+provider's credential env-var name. Set the secret in the environment, then:
 
 ```bash
 export OPENAI_API_KEY="sk-..."
-cargo run -q -p ironclaw_reborn_cli --bin ironclaw-reborn -- run --message "hello"
+cargo run -q -p ironclaw -- run --message "hello"
+# or interactive:
+cargo run -q -p ironclaw -- repl
 ```
 
-Omit `--message` or use `repl` for an interactive stdin session:
+`config init` writes starter `config.toml` and `providers.json`:
 
 ```bash
-cargo run -q -p ironclaw_reborn_cli --bin ironclaw-reborn -- repl
+cargo run -q -p ironclaw -- config init
 ```
 
-### `config.toml` shape
-
-`config init` creates editable starter files:
-
-```bash
-cargo run -q -p ironclaw_reborn_cli --bin ironclaw-reborn -- config init
-```
-
-It writes:
-
-- `$IRONCLAW_REBORN_HOME/config.toml`
-- `$IRONCLAW_REBORN_HOME/providers.json`
-
-A minimal configured model route looks like:
+Minimal model route:
 
 ```toml
 [llm.default]
@@ -420,31 +376,17 @@ model = "gpt-5-mini"
 api_key_env = "OPENAI_API_KEY"
 ```
 
-`config.toml` may also include optional sections such as `[boot]`,
-`[identity]`, `[runner]`, and `[skills]`; `config init` writes commented
-guidance for the supported fields.
-
-If `config.toml` is missing, the first stateful runtime start through `run`,
-`repl`, or `serve` seeds a sparse file with `api_version` and the safe
-`local-dev` boot profile. Read-only commands and `run --dry-run` stay
-side-effect-free. One-off environment selections such as
-`IRONCLAW_REBORN_PROFILE=local-dev-yolo` are not persisted into the seeded
-file.
-
-Important: `api_key_env` is the name of an environment variable, not the secret
-itself. Reborn rejects inline secret-shaped values in `config.toml` and
+`api_key_env` is the **name** of an environment variable, not the secret.
+IronClaw rejects inline secret-shaped values in `config.toml` and
 `providers.json`.
 
-Production storage uses the same env-only pattern. A production Reborn config
-may name the PostgreSQL URL variable, but must not contain the raw URL:
+Production storage uses the same env-only pattern:
 
 ```toml
 [storage]
 backend = "postgres"
 url_env = "IRONCLAW_REBORN_POSTGRES_URL"
 secret_master_key_env = "IRONCLAW_REBORN_SECRET_MASTER_KEY"
-# Optional; defaults to 2. Keep below the PostgreSQL server or managed
-# session-pool cap after reserving capacity for restarts and operator sessions.
 pool_max_size = 2
 
 [policy]
@@ -452,34 +394,24 @@ deployment_mode = "hosted_multi_tenant"
 default_profile = "secure_default"
 ```
 
-Set `IRONCLAW_REBORN_POSTGRES_URL` in the process environment, and set
-`IRONCLAW_REBORN_SECRET_MASTER_KEY` to independent cryptographic key material.
-Managed remote PostgreSQL providers must use TLS, for example by appending
-`sslmode=require`.
-Production `run` also requires an explicit `[policy]` section. The first
-production launch slice supports runtime policies that do not require a
-tenant-sandbox process binding.
+Set `IRONCLAW_REBORN_POSTGRES_URL` (TLS required for managed remote Postgres,
+e.g. `sslmode=require`) and an independent
+`IRONCLAW_REBORN_SECRET_MASTER_KEY`. Production `run` requires an explicit
+`[policy]` section.
 
 Once `[llm.default]` exists, that config selects the provider. `LLM_BACKEND` is
-only an env fallback when no default LLM slot is configured. To switch providers
-after writing config, use `models set-provider <provider>` or edit
-`[llm.default].provider_id`.
+only an env fallback when no default LLM slot is configured.
 
 ### Env-only model selection
 
-If `$IRONCLAW_REBORN_HOME/config.toml` is absent or has no `[llm.default]`,
-Reborn can resolve the LLM from environment variables. A sparse first-run
-seeded config does not include `[llm.default]`, so env-only model selection
-continues to work:
+If `$IRONCLAW_REBORN_HOME/config.toml` is absent or has no `[llm.default]`:
 
 ```bash
 export IRONCLAW_REBORN_HOME="$PWD/.reborn-env-only"
 export LLM_BACKEND=openai
 export OPENAI_API_KEY="sk-..."
-cargo run -q -p ironclaw_reborn_cli --bin ironclaw-reborn -- run --message "hello"
+cargo run -q -p ironclaw -- run --message "hello"
 ```
-
-Common provider env vars:
 
 | Provider | Selector | Required env |
 | --- | --- | --- |
@@ -490,74 +422,53 @@ Common provider env vars:
 | Ollama | `LLM_BACKEND=ollama` | no key; optional `OLLAMA_BASE_URL`, `OLLAMA_MODEL` |
 | Codex auth | `LLM_BACKEND=openai_codex` | `LLM_USE_CODEX_AUTH=true` or `CODEX_AUTH_PATH`; optional `OPENAI_CODEX_MODEL` |
 
-Use `models list <provider>` to see the exact provider metadata compiled into
-the current branch.
+Use `models list <provider>` for provider metadata compiled into the current
+branch.
 
 ### Startup variables
 
 | Variable | Purpose |
 | --- | --- |
-| `IRONCLAW_REBORN_HOME` | Absolute Reborn state root. Defaults to `$HOME/.ironclaw/reborn`. The resolver rejects unsafe paths and v1 state-root aliases such as `$HOME/.ironclaw`. |
-| `IRONCLAW_REBORN_PROFILE` | Boot profile selector. Supported values: `local-dev`, `local-dev-yolo`, `hosted-single-tenant`, `hosted-single-tenant-volume`, `production`, `migration-dry-run`. |
-| `IRONCLAW_REBORN_POSTGRES_URL` | Production PostgreSQL storage URL when `[storage].backend = "postgres"` and `[storage].url_env` names this variable. Keep it out of `config.toml`; remote providers must use TLS. |
-| `IRONCLAW_REBORN_POSTGRES_POOL_MAX_SIZE` | Optional override for the Reborn PostgreSQL client pool size. Use this when a managed provider enforces a small session-pool cap. |
-| `IRONCLAW_RESOURCE_GOVERNOR_UNLIMITED_FAST_PATH` | Optional `true`/`1`/`yes`/`on` toggle that skips durable resource-governor reserve/reconcile/release writes when no finite limits are configured. Defaults to false so production keeps durable accounting unless this is explicitly enabled. |
-| `IRONCLAW_FILESYSTEM_POSTGRES_MIGRATION_CONNECT_MAX_WAIT_SECS` | Optional startup wait window for Postgres filesystem migration connection retries. Defaults to 300 seconds. |
-| `IRONCLAW_REBORN_SECRET_MASTER_KEY` | Production Reborn secret master key when `[storage].secret_master_key_env` names this variable. Keep it independent from the database URL and out of `config.toml`. |
-| `IRONCLAW_REBORN_LOG` | Tracing filter for the Reborn binary, for example `debug,ironclaw_runner=trace`. |
+| `IRONCLAW_REBORN_HOME` | Absolute state root. Defaults to `$HOME/.ironclaw/reborn`. |
+| `IRONCLAW_REBORN_PROFILE` | Boot profile: `local-dev`, `local-dev-yolo`, `hosted-single-tenant`, `hosted-single-tenant-volume`, `production`, `migration-dry-run`. |
+| `IRONCLAW_REBORN_POSTGRES_URL` | Production PostgreSQL URL when `[storage].url_env` names this variable. Keep out of `config.toml`. |
+| `IRONCLAW_REBORN_POSTGRES_POOL_MAX_SIZE` | Optional client pool size override for small managed session pools. |
+| `IRONCLAW_RESOURCE_GOVERNOR_UNLIMITED_FAST_PATH` | Optional skip of durable resource-governor writes when no finite limits are configured. |
+| `IRONCLAW_REBORN_SECRET_MASTER_KEY` | Production secret master key when named by `[storage].secret_master_key_env`. |
+| `IRONCLAW_REBORN_LOG` | Tracing filter, e.g. `debug,ironclaw_runner=trace`. |
 
-`run` and `repl` currently support local-runtime composition through
-`local-dev`, `local-dev-yolo`, and `hosted-single-tenant-volume`.
-`hosted-single-tenant-volume` uses the local-runtime libSQL substrate under
-`$IRONCLAW_REBORN_HOME/hosted-single-tenant-volume`, resolves the hosted
-secure-default runtime policy, and disables process-backed tools such as shell.
-It is intended for single-tenant preview deployments on a persistent volume,
-not as the full PostgreSQL production composition.
+`run` and `repl` support `local-dev`, `local-dev-yolo`, and
+`hosted-single-tenant-volume`. The volume profile uses libSQL under the home
+directory, applies secure-default policy, and disables process-backed tools
+such as shell — intended for single-tenant preview on a persistent volume, not
+full PostgreSQL production.
 
-> **This fork:** IdentyClaw Passport onboarding, federated peer login, and the
-> Podman operator path are documented in
-> [IdentyClaw Passport (Discernible)](#identyclaw-passport-discernible) above.
-> Prefer `./ironclaw.sh` for deploy; use `cargo run` below for upstream-style
-> local development.
-
-Under `AskAlways` (volume / secure-default), `builtin.idcp` is on the
-`exempt_capabilities` list so identity / federated login / HOLA do not stall on
+Under `AskAlways` (volume / secure-default), `builtin.idcp` is on
+`exempt_capabilities` so identity / federated login / HOLA do not stall on
 “Approve reads” — keys and JWTs stay on the host helper either way.
 
-`local-dev-yolo` grants trusted-laptop host access and must be confirmed
-explicitly:
+`local-dev-yolo` grants trusted-laptop host access and must be confirmed:
 
 ```bash
 export IRONCLAW_REBORN_PROFILE=local-dev-yolo
-cargo run -q -p ironclaw_reborn_cli --bin ironclaw-reborn -- repl --confirm-host-access
+cargo run -q -p ironclaw -- repl --confirm-host-access
 ```
 
-### WebUI service
+### WebUI (`serve`)
 
-The Reborn WebUI is compiled behind the `webui-v2-beta` Cargo feature. Builds
-with this feature require Node.js 22 with Corepack/pnpm so Cargo can generate
-and embed the SPA bundle. Build or run the binary with that feature to enable the `serve`
-command:
-
-```bash
-cargo run -q -p ironclaw_reborn_cli --features webui-v2-beta --bin ironclaw-reborn -- serve --help
-cargo build -p ironclaw_reborn_cli --features webui-v2-beta --bin ironclaw-reborn
-```
-
-The WebUI listener defaults to `127.0.0.1:3000`. The service requires an
-env-bearer token and a user id at startup. It also needs the model route from
-the earlier section, including that provider's credential env var:
+`ironclaw serve` is compiled into every build. WebUI builds need Node.js 22
+with Corepack/pnpm so Cargo can generate and embed the SPA bundle.
 
 ```bash
 export IRONCLAW_REBORN_HOME="$PWD/.reborn-home"
-export OPENAI_API_KEY="sk-..." # or the required env var for your configured provider
+export OPENAI_API_KEY="sk-..."
 export IRONCLAW_REBORN_WEBUI_TOKEN="$(openssl rand -hex 32)"
 export IRONCLAW_REBORN_WEBUI_USER_ID="reborn-cli"
 
-cargo run -q -p ironclaw_reborn_cli --features webui-v2-beta --bin ironclaw-reborn -- serve
+cargo run -q -p ironclaw -- serve
 ```
 
-Equivalent `config.toml` listener configuration:
+Default listener: `127.0.0.1:3000`. Equivalent `config.toml`:
 
 ```toml
 [webui]
@@ -569,115 +480,37 @@ allowed_origins = ["http://127.0.0.1:3000", "http://localhost:3000"]
 canonical_host = "127.0.0.1:3000"
 ```
 
-`env_token_var` and `env_user_id_var` are env-var names. Keep the actual token
-and user id in the environment.
+| Variable | Purpose |
+| --- | --- |
+| `IRONCLAW_REBORN_WEBUI_TOKEN` | Bearer token for WebUI requests. If SSO is enabled, also signs sessions (≥ 32 bytes). |
+| `IRONCLAW_REBORN_WEBUI_USER_ID` | Owner/user id for env-bearer requests. |
 
-Required WebUI env vars:
+Optional OAuth / public deploy:
 
 | Variable | Purpose |
 | --- | --- |
-| `IRONCLAW_REBORN_WEBUI_TOKEN` | Bearer token for WebUI requests. If SSO is enabled, this also signs sessions and must be at least 32 bytes. |
-| `IRONCLAW_REBORN_WEBUI_USER_ID` | Reborn owner/user id for env-bearer requests. If `[identity].default_owner` is configured, it must match this value. |
+| `IRONCLAW_REBORN_WEBUI_BASE_URL` | Public base URL for login and product-auth callbacks (`https://` required off-loopback). |
+| `IRONCLAW_REBORN_WEBUI_GOOGLE_CLIENT_ID` / `_SECRET` | Google SSO |
+| `IRONCLAW_REBORN_WEBUI_GITHUB_CLIENT_ID` / `_SECRET` | GitHub SSO |
+| `IRONCLAW_REBORN_WEBUI_ALLOWED_EMAIL_DOMAINS` | Required when any SSO provider is enabled |
+| `IRONCLAW_REBORN_WEBUI_GOOGLE_ALLOWED_HD` | Optional Google hosted-domain hint |
 
-Optional WebUI OAuth env vars:
-
-| Variable | Purpose |
-| --- | --- |
-| `IRONCLAW_REBORN_WEBUI_BASE_URL` | Public base URL used for WebUI login and product-auth OAuth callbacks. Non-loopback deployments must use `https://`. |
-| `IRONCLAW_REBORN_WEBUI_GOOGLE_CLIENT_ID` | Enables Google SSO when set. |
-| `IRONCLAW_REBORN_WEBUI_GOOGLE_CLIENT_SECRET` | Required when Google SSO is enabled. |
-| `IRONCLAW_REBORN_WEBUI_GOOGLE_ALLOWED_HD` | Optional Google hosted-domain restriction. |
-| `IRONCLAW_REBORN_WEBUI_GITHUB_CLIENT_ID` | Enables GitHub SSO when set. |
-| `IRONCLAW_REBORN_WEBUI_GITHUB_CLIENT_SECRET` | Required when GitHub SSO is enabled. |
-| `IRONCLAW_REBORN_WEBUI_ALLOWED_EMAIL_DOMAINS` | Required when any SSO provider is enabled. Comma-separated verified email domains. |
-| `IRONCLAW_REBORN_WEBUI_OAUTH_HTTP_TIMEOUT_SECS` | Optional OAuth HTTP timeout override. |
-
-For Google SSO, create a Google OAuth web client and register the Reborn WebUI
-redirect URI as:
+Google redirect URI:
 
 ```text
 {IRONCLAW_REBORN_WEBUI_BASE_URL}/auth/callback/google
 ```
 
-For example, with `IRONCLAW_REBORN_WEBUI_BASE_URL=https://ironclaw.example.com`,
-the authorized redirect URI in Google Cloud is:
+Use `serve --host <ip> --port <port>` to override the listener.
+`local-dev-yolo` refuse non-loopback hosts and require `--confirm-host-access`.
 
-```text
-https://ironclaw.example.com/auth/callback/google
-```
+### Slack
 
-Notion MCP and other product-auth OAuth setup flows use the same public WebUI
-base URL when registering provider callback URLs. Do not include a trailing
-slash in `IRONCLAW_REBORN_WEBUI_BASE_URL`; Reborn trims it before building
-callback URLs. If the base URL is omitted, Reborn uses the actual listener
-address, such as `http://127.0.0.1:3000`, which is suitable only for
-loopback/local OAuth testing. Public or non-loopback OAuth deployments must set
-an `https://` base URL.
+Enable Slack with `IRONCLAW_REBORN_SLACK_ENABLED=true` or `[slack] enabled = true`
+in `config.toml`, then complete workspace setup from WebUI channel setup.
+Details: [`docs/internal/reborn/setup-slack-for-reborn-binary.md`](docs/internal/reborn/setup-slack-for-reborn-binary.md).
 
-Complete Google SSO startup env:
-
-```bash
-export IRONCLAW_REBORN_HOME="/var/lib/ironclaw-reborn"
-export IRONCLAW_REBORN_PROFILE=local-dev
-export OPENAI_API_KEY="sk-..." # or the required env var for your configured provider
-export IRONCLAW_REBORN_WEBUI_TOKEN="$(openssl rand -hex 32)"
-export IRONCLAW_REBORN_WEBUI_USER_ID="reborn-cli"
-export IRONCLAW_REBORN_WEBUI_BASE_URL="https://ironclaw.example.com"
-export IRONCLAW_REBORN_WEBUI_ALLOWED_EMAIL_DOMAINS="example.com,team.example.com"
-export IRONCLAW_REBORN_WEBUI_GOOGLE_CLIENT_ID="..."
-export IRONCLAW_REBORN_WEBUI_GOOGLE_CLIENT_SECRET="..."
-
-cargo run -q -p ironclaw_reborn_cli --features webui-v2-beta --bin ironclaw-reborn -- serve --host 0.0.0.0 --port 3000
-```
-
-`IRONCLAW_REBORN_WEBUI_ALLOWED_EMAIL_DOMAINS` is the actual admission
-allowlist. Google `hd` is only an optional provider-side hosted-domain hint; do
-not rely on it instead of the Reborn allowed-domain list. `IRONCLAW_REBORN_HOME`
-selects the state/config root for this service. `IRONCLAW_REBORN_PROFILE`
-defaults to `local-dev`; `local-dev-yolo` grants trusted-laptop host access and
-cannot be served on a non-loopback host.
-
-Use `serve --host <ip> --port <port>` to override the listener from the CLI.
-Binding to a non-loopback host is production-sensitive. `local-dev-yolo` serve
-mode also requires `--confirm-host-access` and refuses non-loopback hosts.
-
-### Slack service
-
-Slack support is compiled behind the `slack-v2-host-beta` Cargo feature. That
-feature includes `webui-v2-beta`, so Slack runs on the same `serve` command:
-
-```bash
-export IRONCLAW_REBORN_HOME="$PWD/.reborn-home"
-export OPENAI_API_KEY="sk-..." # or the required env var for your configured provider
-export IRONCLAW_REBORN_WEBUI_TOKEN="$(openssl rand -hex 32)"
-export IRONCLAW_REBORN_WEBUI_USER_ID="reborn-cli"
-export IRONCLAW_REBORN_SLACK_ENABLED="true"
-
-cargo run -q -p ironclaw_reborn_cli --features slack-v2-host-beta --bin ironclaw-reborn -- serve
-```
-
-Enable Slack by setting `IRONCLAW_REBORN_SLACK_ENABLED=true`, or by adding a
-`[slack]` section to `config.toml`:
-
-```toml
-[slack]
-enabled = true
-```
-
-The env var overrides only the Slack route enablement gate: `true`/`1` mounts
-Slack, while `false`/`0` acts as a deployment kill switch. After the server
-starts, configure the Slack app ids, bot token, signing secret, and channel
-mappings from WebUI channel setup.
-
-Required Slack settings:
-
-| Name | Purpose |
-| --- | --- |
-| `[slack].enabled = true` or `IRONCLAW_REBORN_SLACK_ENABLED=true` | Mounts the Slack route during `serve`. |
-| WebUI Slack workspace setup | Stores Slack installation ids, channel mappings, and Slack bot/signing secrets. |
-
-More detailed Slack setup notes live in
-[`docs/reborn/setup-slack-for-reborn-binary.md`](docs/reborn/setup-slack-for-reborn-binary.md).
+---
 
 ## Philosophy
 
@@ -735,7 +568,7 @@ IronClaw is the AI assistant you can actually trust with your personal and profe
 
 - Rust 1.96+
 - PostgreSQL 15+ with [pgvector](https://github.com/pgvector/pgvector) extension
-- Node.js 22+ with Corepack/pnpm for source builds that enable the `webui-v2-beta` feature
+- Node.js 22+ with Corepack/pnpm for source builds that embed the WebUI
 - NEAR AI account (authentication handled via setup wizard)
 - `libclang` and a working C toolchain if you build the WeChat voice/SILK path from source
 
@@ -787,7 +620,7 @@ git clone https://github.com/nearai/ironclaw.git
 cd ironclaw
 
 # Build
-cargo build --release
+cargo build --release -p ironclaw
 
 # Run tests
 cargo test
@@ -798,7 +631,7 @@ For **full release** (after modifying channel sources), run `./scripts/build-all
 > **Optional:** WeChat voice notes (`audio/silk`) require the standalone
 > `ironclaw-silk-decoder` helper to be transcribable. It's excluded from the
 > default workspace build because `silk-codec` pulls in `bindgen`/`libclang`.
-> Build it separately with `./crates/ironclaw_silk_decoder/build.sh` (needs
+> Build it separately with `./tools/ironclaw_silk_decoder/build.sh` (needs
 > libclang + a C toolchain) and put the resulting binary on `$PATH`, beside
 > the `ironclaw` binary, or pointed at by `IRONCLAW_SILK_DECODER`. Without
 > it, voice messages are still delivered — just as raw `audio/silk` blobs.
@@ -896,7 +729,7 @@ External content passes through multiple security layers:
 │  ┌──────┐  ┌──────┐   ┌─────────────┐  ┌─────────────┐         │
 │  │ REPL │  │ HTTP │   │WASM Channels│  │ Web Gateway │         │
 │  └──┬───┘  └──┬───┘   └──────┬──────┘  │ (SSE + WS)  │         │
-│     │         │              │         └──────┬──────┘         │
+│     │         │              │         └──────┬────────┘         │
 │     └─────────┴──────────────┴────────────────┘                │
 │                              │                                 │
 │                    ┌─────────▼─────────┐                       │
@@ -943,18 +776,21 @@ External content passes through multiple security layers:
 | **Workspace** | Persistent memory with hybrid search |
 | **Safety Layer** | Prompt injection defense and content sanitization |
 
-## IronClaw Usage
+## Usage
 
 ```bash
-# First-time setup (configures database, auth, etc.)
+# First-time setup
 ironclaw onboard
 
-# Start interactive REPL
-cargo run
+# Interactive REPL (from a source checkout)
+cargo run -q -p ironclaw -- repl
 
 # REPL with debug logging
-RUST_LOG=ironclaw=debug cargo run
+RUST_LOG=ironclaw=debug cargo run -q -p ironclaw -- repl
 ```
+
+On this fork, prefer `./ironclaw.sh chat` / `./ironclaw.sh exec -- …` against
+`../ironclaw-app/`.
 
 ## Development
 
@@ -963,7 +799,7 @@ RUST_LOG=ironclaw=debug cargo run
 cargo fmt
 
 # Lint
-cargo clippy --all --benches --tests --examples --all-features
+cargo clippy --all --benches --tests --examples --all-features -- -D warnings
 
 # Run tests
 createdb ironclaw_test
