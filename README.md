@@ -9,6 +9,20 @@
 </p>
 
 <p align="center">
+  <strong>This is <a href="https://www.discernible.io/">Discernible</a>'s fork of
+  <a href="https://github.com/nearai/ironclaw">NEAR AI IronClaw</a>.</strong>
+  Upstream remains the Reborn agent runtime (CLI, WebUI, WASM sandbox, skills,
+  channels). This checkout adds a rootless <strong>Podman</strong> operator and
+  <strong>IdentyClaw Passport</strong> identity so the agent can onboard at
+  <a href="https://api.identyclaw.com">api.identyclaw.com</a> and then log in to
+  <strong>any federated peer API</strong> built from
+  <a href="https://github.com/discernible-io/api-idc">discernible-io/api-idc</a>
+  — for example <a href="https://api.lastcradle.io">api.lastcradle.io</a> —
+  <strong>with no API key and no extra credentials</strong>. The Passport
+  <em>is</em> the credential.
+</p>
+
+<p align="center">
   <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache%202.0-blue.svg" alt="License: MIT OR Apache-2.0" /></a>
   <a href="https://t.me/ironclawAI"><img src="https://img.shields.io/badge/Telegram-%40ironclawAI-26A5E4?style=flat&logo=telegram&logoColor=white" alt="Telegram: @ironclawAI" /></a>
   <a href="https://www.reddit.com/r/ironclawAI/"><img src="https://img.shields.io/badge/Reddit-r%2FironclawAI-FF4500?style=flat&logo=reddit&logoColor=white" alt="Reddit: r/ironclawAI" /></a>
@@ -26,8 +40,9 @@
 </p>
 
 <p align="center">
+  <a href="#this-fork-discernible">This fork</a> •
+  <a href="#identyclaw-passport-discernible">IdentyClaw</a> •
   <a href="#ironclaw-reborn-quick-start">Reborn Quick Start</a> •
-  <a href="#identyclaw-passport-builtinidcp">IdentyClaw</a> •
   <a href="#philosophy">Philosophy</a> •
   <a href="#features">Features</a> •
   <a href="#installation">Installation</a> •
@@ -38,7 +53,285 @@
 
 ---
 
+## This fork (Discernible)
+
+| | [nearai/ironclaw](https://github.com/nearai/ironclaw) (upstream) | This fork ([discernible-io/ironclaw-idc](https://github.com/discernible-io/ironclaw-idc)) |
+|---|---|---|
+| Agent runtime | `ironclaw-reborn` from source / releases | Same Reborn core — we do not fork the agent loop |
+| Host install | `cargo run`, manual config | Rootless **Podman** via [`./ironclaw.sh`](deploy/podman/README.md) |
+| Runtime state | `$IRONCLAW_REBORN_HOME` | Sibling `../ironclaw-app/` (`./ironclaw.sh init`) |
+| Agent identity | Not included | IdentyClaw Passport + `idcp` / `builtin.idcp` |
+| Calling peer APIs | Vendor API keys in env | Prove Passport key possession; peer mints a JWT. No API keys. |
+| TLS ingress | Bring your own | nginx sidecar + optional Let's Encrypt |
+
+Operator reference: [`deploy/podman/README.md`](deploy/podman/README.md). Product overview:
+[discernible.io](https://www.discernible.io/). Enrollment contract:
+[guide:enrollment](https://api.identyclaw.com/.well-known/enrollment). Purchase:
+[purchase.identyclaw.com](https://purchase.identyclaw.com).
+
+If you only want stock IronClaw, use
+[upstream](https://github.com/nearai/ironclaw). The rest of this README still
+describes the NEAR agent; skip to
+[IdentyClaw Passport](#identyclaw-passport-discernible) for the fork-specific
+path.
+
+## IdentyClaw Passport (Discernible)
+
+This fork wires IronClaw to [IdentyClaw](https://www.discernible.io/) — portable,
+cryptographically verifiable agent identity on NEAR (RODiT / HOLA).
+
+You mint a Passport **once** at IdentyClaw home. Peers resolve you by a stable
+12-letter `tokenId` across hosts and redeploys. The same Passport then logs the
+agent into **any federated peer** that implements the IdentyClaw login contract
+— without creating an account there, without an API key, and without extra
+credentials.
+
+| Role | Host | What it does |
+|------|------|----------------|
+| **Home** | [api.identyclaw.com](https://api.identyclaw.com) | Issues Passport / HOLA identity. Does **not** authorize third-party APIs. |
+| **Peer** | e.g. [api.lastcradle.io](https://api.lastcradle.io), or any API from [api-idc](https://github.com/discernible-io/api-idc) | Same login challenge (`GET /api/login/timestamp` → `POST /api/login`). Mints a JWT valid **only** for that peer. |
+
+Clients remint a JWT **per peer**. A home JWT is not accepted at lastcradle (or
+any other peer), and peer tokens are not portable across peers. `idcp` caches each
+host's JWT under `../ironclaw-app/data/identyclaw/sessions/` and never prints it
+to the model.
+
+```text
+┌─────────────────────┐         ┌──────────────────────────┐
+│ IdentyClaw home     │         │ Federated peer           │
+│ api.identyclaw.com  │         │ e.g. api.lastcradle.io   │
+│ mint Passport once  │         │ POST /api/login → JWT    │
+└─────────┬───────────┘         └────────────┬─────────────┘
+          │ Passport keys                    │
+          └──────────────┬───────────────────┘
+                         ▼
+              idcp ensure_session --base <peer>
+              (prove key possession; no API key)
+```
+
+Every path starts with a NEAR account and a Passport mint — you do not register
+with IdentyClaw to exist. Product overview and get-started:
+[www.discernible.io](https://www.discernible.io); purchase portal:
+[purchase.identyclaw.com](https://purchase.identyclaw.com); API/docs MCP:
+[api.identyclaw.com](https://api.identyclaw.com).
+
+| Piece | Role |
+| --- | --- |
+| **`builtin.idcp`** | First-party capability (same class as `builtin.http`) compiled into `ironclaw-reborn` |
+| **`skills/identyclaw/`** | Runtime skill that steers the model to prefer that capability |
+| **Helper sidecar** | Loopback-only Node service that holds NEAR Passport keys and JWTs (`deploy/identyclaw/`) |
+| **`./ironclaw.sh idcp`** | Host operator CLI (aliases: `identyclaw`) |
+
+```text
+Agent turn → builtin.idcp → http://127.0.0.1:3921 (helper) → api.identyclaw.com
+```
+
+Passport private keys and full JWTs never reach the model. The helper injects
+Bearer tokens; `builtin.idcp` returns redacted JSON only.
+
+On processless profiles such as `hosted-single-tenant-volume`
+(`process_backend=none`), prefer **`builtin.idcp`** — it declares only
+`DispatchCapability`, so it stays visible when `builtin.shell` does not. On
+shell-enabled profiles the `idcp` CLI on `PATH` (`/opt/idcp/bin/idcp` in the
+Podman pod) is an optional alternative with the same verbs.
+
+Checkout is a **human** step. Keep NEAR private keys on disk only — never paste
+them into chat. LLM providers (OpenAI, OpenRouter, NEAR AI, …) are a separate
+concern; Passport replaces **service API keys** for federated peers, not model
+keys.
+
+Enrollment contract: [guide:enrollment](https://api.identyclaw.com/.well-known/enrollment) · purchase: [purchase.identyclaw.com](https://purchase.identyclaw.com).
+
+### 1. Install this repo (Podman)
+
+Requires rootless [Podman](https://podman.io/). Full operator reference:
+[`deploy/podman/README.md`](deploy/podman/README.md).
+
+```bash
+git clone https://github.com/discernible-io/ironclaw-idc.git ~/ironclaw-idc
+cd ~/ironclaw-idc
+chmod +x ironclaw.sh scripts/*.sh
+./ironclaw.sh init
+# Edit ../ironclaw-app/secrets/secrets.env — LLM key, host/port/BASE_URL
+./ironclaw.sh idcp-init
+```
+
+`init` creates the sibling `../ironclaw-app/` layout (secrets, certs, data).
+Runtime state lives in `../ironclaw-app/` (override with `IRONCLAW_APP_DIR`).
+
+### 2. Create a NEAR implicit account
+
+IronClaw uses the host-login path (`idcp`), not OpenClaw plugins. Enrollment
+writes credentials under `../ironclaw-app/secrets/near-credentials/`.
+
+```bash
+./ironclaw.sh idcp enroll
+```
+
+That runs [gennearaccount](https://github.com/discernible-io/gennearaccount)
+when available (or a compatible fallback) and prints a **64-character hex**
+`implicit_account_id`. Save that id — it is the Passport recipient. Back up the
+JSON key file (`chmod 0600`); do not commit it.
+
+Optional standalone install of `gennearaccount`: see
+[gennearaccount releases](https://github.com/discernible-io/gennearaccount/releases)
+or build from source. Losing the private key loses the Passport permanently.
+
+### 3. Get NEAR (HOT Wallet buy or swap)
+
+Minting costs NEAR on mainnet (gas + Passport fee).
+[guide:enrollment](https://api.identyclaw.com/api/mcp/resource/guide:enrollment)
+expects a funded checkout wallet. A practical path is
+**[HOT Wallet](https://hot-labs.org/telegram/)** (Telegram mini-app / browser
+extension — NEAR-native, built-in swap):
+
+1. Open [HOT Wallet](https://hot-labs.org/telegram/) in Telegram (or install the
+   browser extension).
+2. Create or import a wallet you control. This is your **paying** wallet for
+   checkout — separate from the agent's implicit account key file.
+3. Obtain NEAR:
+   - Buy NEAR in-app if available in your region, **or**
+   - Deposit another supported asset and **swap** it to NEAR inside HOT Wallet,
+     **or**
+   - Withdraw NEAR from an exchange into HOT.
+4. Keep enough NEAR for the tier you want plus a small buffer for gas. Personal
+   tier starts around **~0.066 Ⓝ** for short longevity; Collectible /
+   Enterprise are higher — live quotes are on the purchase portal.
+
+You can also fund or swap via other NEAR wallets / DEX. What matters at mint
+time is: a wallet with NEAR that can connect to the purchase portal, and the
+agent's `implicit_account_id` as the Passport recipient.
+
+### 4. Craft the Passport at purchase.identyclaw.com
+
+1. Open **[https://purchase.identyclaw.com](https://purchase.identyclaw.com)**.
+2. Fill the Passport form (name, creature/role, ContactURI, traits, longevity,
+   optional webhook/avatar — see the
+   [enrollment guide](https://api.identyclaw.com/api/mcp/resource/doc:reference:enrollment)).
+3. Paste the agent's **64-char hex** `implicit_account_id` as the NEAR account
+   that will **receive** the Passport (implicit hex account, not a named
+   `.near` account).
+4. **Connect NEAR Wallet** — choose HOT Wallet (or another Wallet Selector
+   option) and approve the mint transaction with the funded wallet from step 3.
+5. Wait for confirmation (~seconds). The Passport is minted on-chain to that
+   implicit account.
+
+Pricing tiers and fields change over time; trust the portal for current fees.
+
+### 5. Activate on IronClaw (home session)
+
+This logs into **IdentyClaw home** (`https://api.identyclaw.com`) — identity,
+HOLA, discovery. It does not log you into other APIs.
+
+```bash
+./ironclaw.sh build-image && ./ironclaw.sh start
+./ironclaw.sh idcp ensure_session   # JWT login against home (cached under data/identyclaw/sessions/)
+./ironclaw.sh idcp me               # confirm Passport identity / tokenId
+```
+
+`ensure_session` signs the peer's login challenge with the Passport Ed25519 key
+(`GET /api/login/timestamp` → `POST /api/login`). No password, no API key, no
+extra account.
+
+Any Reborn agent on that host then shares the same Passport via the sidecar. In
+chat, ask for identity / HOLA / Passport work — the skill steers the model to
+calls such as `{ "op": "me" }` or `{ "op": "ensure_session" }`.
+
+Day-to-day on home: `idcp create_hola` / `idcp verify_hola` / `idcp request …`.
+Optional docs MCP at `https://api.identyclaw.com/mcp`.
+
+| Path | Role |
+|------|------|
+| `ironclaw-idc/deploy/` | Podman scripts + IdentyClaw helper |
+| `../ironclaw-app/secrets/near-credentials/` | NEAR key JSON |
+| `../ironclaw-app/data/identyclaw/sessions/` | JWT cache **per API host** |
+| `skills/identyclaw/` | Agent skill |
+
+### 6. Log in to any federated peer (no API key)
+
+After the Passport exists, the same keypair logs into every peer that ships the
+IdentyClaw challenge-response contract. Point `idcp` at that peer's
+`apiEndpoint` with `--base`. The helper remints a JWT **for that host only** and
+injects `Authorization: Bearer` on `request`. You do not register, you do not
+collect a vendor key, and you must not send the home JWT to the peer.
+
+Auth contract (same on home and every peer):
+
+| Step | Endpoint | Notes |
+|------|----------|--------|
+| 1 | `GET /api/login/timestamp` | Fresh timestamp from **this** peer |
+| 2 | Sign locally | UTF-8 `accountid + timestamp_iso` (Ed25519 → base64url) |
+| 3 | `POST /api/login` | Signature → peer-minted `jwt_token` |
+| 4 | Protected calls | `Authorization: Bearer <jwt_token>` |
+
+`idcp` does those four steps for you.
+
+#### Example: Synthetics' Last Cradle
+
+[api.lastcradle.io](https://api.lastcradle.io) is a live federated peer (game +
+sample CRUDA). A home JWT does **not** authorize `/api/game/*` there — remint
+against lastcradle:
+
+```bash
+PEER=https://api.lastcradle.io
+./ironclaw.sh idcp ensure_session --base "$PEER"
+./ironclaw.sh idcp request GET /api/token/claims --base "$PEER"
+./ironclaw.sh idcp list_sessions    # home + lastcradle, metadata only (no JWTs)
+```
+
+Do **not** call `me --base "$PEER"` to verify federated login — `/api/me/identity`
+is a home-only route. `ensure_session` returning `ok: true` with
+`federated: true` **is** the login success signal.
+
+Public playbook (no JWT):
+[skill.md](https://api.lastcradle.io/api/game/skill.md) ·
+[peer-auth.md](https://api.lastcradle.io/api/game/peer-auth.md) ·
+[OpenAPI](https://api.lastcradle.io/api-docs).
+
+In chat (processless profiles), the agent uses the same flow via
+`builtin.idcp`:
+
+```json
+{ "op": "ensure_session", "base": "https://api.lastcradle.io" }
+```
+
+Then, only if the user asks for a named product route on that peer:
+
+```json
+{ "op": "request", "method": "GET", "path": "/api/token/claims", "base": "https://api.lastcradle.io" }
+```
+
+#### Run your own peer
+
+Fork or clone **[discernible-io/api-idc](https://github.com/discernible-io/api-idc)**
+— keep the login spine (`authenticate` / `authorize`), replace the sample CRUDA
+resource with your domain, set `SERVICE_NAME` and OpenAPI `servers` to your
+hostname. Passport holders then log in the same way:
+
+```bash
+./ironclaw.sh idcp ensure_session --base https://your-peer.example
+./ironclaw.sh idcp request GET /api/token/claims --base https://your-peer.example
+```
+
+Tell clients: login against **your** `apiEndpoint`; never send a home JWT there.
+
+Supported `idcp` / `builtin.idcp` ops: `ensure_session`, `me`, `request`,
+`create_hola`, `verify_hola`, `agents`, `info`, `list_sessions`. Enrollment stays
+host-only (`./ironclaw.sh idcp enroll`).
+
+Further reading:
+[`deploy/identyclaw/README.md`](deploy/identyclaw/README.md),
+[`skills/identyclaw/SKILL.md`](skills/identyclaw/SKILL.md),
+IdentyClaw enrollment MCP `doc:reference:enrollment` /
+`guide:enrollment` at `https://api.identyclaw.com/mcp`.
+
+---
+
 ## IronClaw Reborn Quick Start
+
+> **This fork:** for HTTPS Podman deploy with IdentyClaw Passport, start with
+> [IdentyClaw Passport (Discernible)](#identyclaw-passport-discernible) above.
+> The section below documents upstream-style `cargo run` development.
 
 IronClaw Reborn is the standalone runtime on the `reborn-integration` branch.
 It uses the separate `ironclaw-reborn` binary from the
@@ -46,7 +339,7 @@ It uses the separate `ironclaw-reborn` binary from the
 the legacy `ironclaw` state directory as its config root.
 
 For the older `ironclaw` binary, see [Installation](#installation) and
-[Legacy IronClaw Usage](#legacy-ironclaw-usage).
+[IronClaw Usage](#ironclaw-usage).
 
 ### Build or run the binary
 
@@ -221,142 +514,15 @@ secure-default runtime policy, and disables process-backed tools such as shell.
 It is intended for single-tenant preview deployments on a persistent volume,
 not as the full PostgreSQL production composition.
 
-### IdentyClaw Passport (`builtin.idcp`)
+> **This fork:** IdentyClaw Passport onboarding, federated peer login, and the
+> Podman operator path are documented in
+> [IdentyClaw Passport (Discernible)](#identyclaw-passport-discernible) above.
+> Prefer `./ironclaw.sh` for deploy; use `cargo run` below for upstream-style
+> local development.
 
-IronClaw agents talk to [IdentyClaw](https://www.discernible.io) through a
-**built-in host capability**, not a plugin or installable extension.
-Every path starts with a NEAR account and a Passport mint — you do not register
-with IdentyClaw to exist. Product overview and get-started:
-[www.discernible.io](https://www.discernible.io); purchase portal:
-[purchase.identyclaw.com](https://purchase.identyclaw.com); API/docs MCP:
-[api.identyclaw.com](https://api.identyclaw.com).
-
-| Piece | Role |
-| --- | --- |
-| **`builtin.idcp`** | First-party capability (same class as `builtin.http`) compiled into `ironclaw-reborn` |
-| **`skills/identyclaw/`** | Runtime skill that steers the model to prefer that capability |
-| **Helper sidecar** | Loopback-only Node service that holds NEAR Passport keys and JWTs (`deploy/identyclaw/`) |
-| **`./ironclaw.sh idcp`** | Host operator CLI (aliases: `identyclaw`) |
-
-```text
-Agent turn → builtin.idcp → http://127.0.0.1:3921 (helper) → api.identyclaw.com
-```
-
-Passport private keys and full JWTs never reach the model. The helper injects
-Bearer tokens; `builtin.idcp` returns redacted JSON only.
-
-This works on **processless** profiles such as `hosted-single-tenant-volume`
-(`process_backend=none`): `builtin.idcp` declares only `DispatchCapability`, so
-it stays visible when `builtin.shell` does not. On shell-enabled profiles the
-`idcp` CLI on `PATH` (`/opt/idcp/bin/idcp` in the Podman pod) is an optional
-alternative with the same verbs.
-
-Under `AskAlways` (volume / secure-default), every Allow-mode tool would
-otherwise prompt for approval. `builtin.idcp` is on the local-dev
-`exempt_capabilities` list so identity / federated login / HOLA do not stall
-on “Approve reads” — keys and JWTs stay on the host helper either way.
-`builtin.http` is also exempted there so simple uptime / health probes do not
-re-gate on every retry when global auto-approve is off (`builtin.http.save`
-stays gated).
-
-#### Get a Passport (human onboarding)
-
-Canonical product steps from [IdentyClaw / Discernible.io](https://www.discernible.io/#enroll):
-install tooling → create a NEAR implicit account → fund NEAR → mint at the
-Purchase Portal. In this fork, enroll writes credentials under the Podman app
-dir; never paste private keys into chat.
-
-##### 1. Install this repo
-
-```bash
-git clone <this-repo-url> ~/ironclaw-idc
-cd ~/ironclaw-idc
-chmod +x ironclaw.sh scripts/*.sh
-./ironclaw.sh init
-# Edit ../ironclaw-app/secrets/secrets.env — LLM key, host/port/BASE_URL
-./ironclaw.sh idcp-init
-```
-
-`init` creates the sibling `../ironclaw-app/` layout (secrets, certs, data).
-Full Podman deploy: [`deploy/podman/README.md`](deploy/podman/README.md).
-
-##### 2. Create a NEAR account
-
-Generate a mainnet **implicit** account (64-char hex). Credentials stay on the
-host as gennearaccount-compatible JSON (`chmod 700` on the directory).
-
-```bash
-./ironclaw.sh idcp enroll
-# Prints account_id / implicit_account_id — copy it for purchase
-```
-
-`enroll` prefers `gennearaccount` when installed, otherwise the bundled helper
-writer. Alternative (same JSON layout): install
-[gennearaccount](https://github.com/discernible-io/gennearaccount) and run
-`gennearaccount ../ironclaw-app/secrets/near-credentials`. Keep the JSON on
-durable disk; losing the private key loses the Passport permanently.
-
-##### 3. Get NEAR (HOT Wallet)
-
-Minting charges **NEAR on mainnet**. A practical path is
-[HOT Wallet](https://hot-labs.org/wallet/) (Telegram mini-app, browser
-extension, or mobile) — a common NEAR wallet for deposits, swaps, and dApp
-connect:
-
-1. Install / open [HOT Wallet](https://hot-labs.org/chains/near) and create or
-   import a wallet (back up the seed phrase offline).
-2. **Deposit or swap into NEAR** — buy NEAR on an exchange and withdraw to your
-   HOT NEAR address, or use HOT’s in-wallet **swap** / bridge if you already
-   hold other assets. You need enough NEAR for the Passport tier plus gas
-   (see current fees on the purchase portal; Personal starts from a small
-   amount of Ⓝ; Collectible / Enterprise cost more).
-3. Keep HOT funded for checkout. The Purchase Portal’s **Connect NEAR Wallet**
-   step uses a NEAR wallet (HOT works) to pay; the Passport is minted **to**
-   the agent’s hex `account_id` from step 2 (not your HOT named account).
-
-You can instead withdraw NEAR from a CEX straight to the implicit
-`account_id` if the exchange supports hex addresses; HOT is usually simpler
-for humans paying at the portal.
-
-##### 4. Craft the Passport at purchase.identyclaw.com
-
-1. Open [https://purchase.identyclaw.com](https://purchase.identyclaw.com).
-2. Fill agent identity fields (display name, **Creature** / role, Contact URI,
-   optional traits / webhook URL / longevity).
-3. Set **NEAR Account that will receive the IdentyClaw Passport** to the
-   64-char hex `account_id` from `idcp enroll` (implicit account, not a
-   `*.near` name).
-4. **Connect NEAR Wallet** (e.g. HOT), review the estimated fee, and mint
-   Personal / Enterprise / Collectible.
-5. Wait for on-chain confirmation (~seconds). The Passport (`tokenId`) is
-   held by that NEAR account.
-
-##### 5. Confirm on this host
-
-```bash
-./ironclaw.sh build-image && ./ironclaw.sh start
-./ironclaw.sh idcp ensure_session
-./ironclaw.sh idcp me
-```
-
-Any Reborn agent on that host then shares the same Passport via the sidecar.
-In chat, ask for identity / HOLA / Passport work — the skill steers the model
-to calls such as `{ "op": "me" }` or `{ "op": "ensure_session" }`.
-
-**Federated peer APIs:** pass the peer HTTPS URL as `base` (do not reuse the home
-JWT). Example: `{ "op": "ensure_session", "base": "https://peer.example.com" }`
-then `{ "op": "request", "method": "GET", "path": "/api/…", "base": "https://peer.example.com" }`.
-See [`skills/identyclaw/SKILL.md`](skills/identyclaw/SKILL.md).
-
-Supported ops: `ensure_session`, `me`, `request`, `create_hola`, `verify_hola`,
-`agents`, `info`, `list_sessions`. Enrollment stays host-only
-(`./ironclaw.sh idcp enroll`).
-
-Details: [`deploy/identyclaw/README.md`](deploy/identyclaw/README.md),
-[`deploy/podman/README.md`](deploy/podman/README.md),
-[`skills/identyclaw/SKILL.md`](skills/identyclaw/SKILL.md),
-IdentyClaw enrollment MCP `doc:reference:enrollment` /
-`guide:enrollment` at `https://api.identyclaw.com/mcp`.
+Under `AskAlways` (volume / secure-default), `builtin.idcp` is on the
+`exempt_capabilities` list so identity / federated login / HOLA do not stall on
+“Approve reads” — keys and JWTs stay on the host helper either way.
 
 `local-dev-yolo` grants trusted-laptop host access and must be confirmed
 explicitly:
@@ -558,6 +724,12 @@ IronClaw is the AI assistant you can actually trust with your personal and profe
 - **Identity Files** - Maintain consistent personality and preferences across sessions
 
 ## Installation
+
+> **This fork:** prefer the Podman path in
+> [IdentyClaw Passport § 1](#1-install-this-repo-podman) (`./ironclaw.sh init`),
+> not the upstream release installers below. The curl/PowerShell installers are
+> stock [NEAR IronClaw](https://github.com/nearai/ironclaw) and do **not**
+> include `idcp`, Passport, or the sibling `ironclaw-app/` layout.
 
 ### Prerequisites
 
@@ -815,6 +987,22 @@ Key differences:
 - **PostgreSQL vs SQLite** - Production-ready persistence
 - **Security-first design** - Multiple defense layers, credential protection
 
+## Community
+
+**This fork (Discernible)**
+
+- 🌐 [discernible.io](https://www.discernible.io/)
+- 🪪 [IdentyClaw home](https://api.identyclaw.com) · [purchase](https://purchase.identyclaw.com)
+- 🧩 Federated peer template: [discernible-io/api-idc](https://github.com/discernible-io/api-idc)
+- 🎮 Example peer: [api.lastcradle.io](https://api.lastcradle.io)
+- 🐛 Fork issues: [discernible-io/ironclaw-idc](https://github.com/discernible-io/ironclaw-idc/issues)
+
+**Upstream IronClaw**
+
+- 💬 [Telegram @ironclawAI](https://t.me/ironclawAI)
+- 📖 [Reddit r/ironclawAI](https://www.reddit.com/r/ironclawAI/)
+- 🐛 [Issues](https://github.com/nearai/ironclaw/issues)
+
 ## License
 
 Licensed under either of:
@@ -823,3 +1011,7 @@ Licensed under either of:
 - MIT License ([LICENSE-MIT](LICENSE-MIT))
 
 at your option.
+
+IronClaw is built by [NEAR AI](https://near.ai). This fork's Podman operator
+and IdentyClaw Passport path are maintained by
+[Discernible](https://www.discernible.io/).
