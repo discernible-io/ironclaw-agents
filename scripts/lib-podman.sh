@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for IronClaw Podman HTTPS deploy (ironclaw-idc).
+# Shared helpers for IronClaw Podman HTTPS deploy (ironclaw-agents).
 # shellcheck shell=bash
 
 ironclaw_repo_root() {

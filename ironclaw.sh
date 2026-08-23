@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # IronClaw Reborn HTTPS operator CLI (Podman pod + nginx TLS sidecar).
 #
-# Repo (code): this checkout (ironclaw-idc fork)
+# Repo (code): this checkout (ironclaw-agents fork)
 # App dir (secrets/state): ../ironclaw-app  (override: IRONCLAW_APP_DIR)
 #
 # Commands:
@@ -20,7 +20,7 @@
 #   exec <cmd…>          Run a host command with secrets.env loaded + host Reborn home
 #   idcp-init | identyclaw-init   Layout near-credentials + install helper npm deps
 #   idcp <cmd> | identyclaw <cmd> Host CLI: enroll|ensure_session|me|create_hola|…
-#   create-github-fork   Create discernible-io/ironclaw-idc fork via gh (once)
+#   create-github-fork   Create discernible-io/ironclaw-agents fork via gh (once)
 
 set -euo pipefail
 
@@ -483,16 +483,16 @@ cmd_create_github_fork() {
     echo "Then re-run: ./ironclaw.sh create-github-fork" >&2
     exit 1
   fi
-  if gh repo view discernible-io/ironclaw-idc >/dev/null 2>&1; then
-    echo "discernible-io/ironclaw-idc already exists"
+  if gh repo view discernible-io/ironclaw-agents >/dev/null 2>&1; then
+    echo "discernible-io/ironclaw-agents already exists"
   else
     # discernible-io is a user account (not an org); --org would 422.
     # Do not pass --remote/--clone: when REPO is given, --remote is rejected by gh,
     # and we already manage origin/upstream ourselves below.
-    echo "==> Forking nearai/ironclaw → discernible-io/ironclaw-idc"
-    gh repo fork nearai/ironclaw --fork-name ironclaw-idc
+    echo "==> Forking nearai/ironclaw → discernible-io/ironclaw-agents"
+    gh repo fork nearai/ironclaw --fork-name ironclaw-agents
   fi
-  git -C "$ROOT" remote set-url origin git@github.com:discernible-io/ironclaw-idc.git
+  git -C "$ROOT" remote set-url origin git@github.com:discernible-io/ironclaw-agents.git
   if git -C "$ROOT" remote get-url upstream >/dev/null 2>&1; then
     git -C "$ROOT" remote set-url upstream git@github.com:nearai/ironclaw.git
   else

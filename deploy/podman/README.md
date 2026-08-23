@@ -1,6 +1,6 @@
 # IronClaw HTTPS deploy (Podman + nginx sidecar)
 
-This fork (`ironclaw-idc`) adds a SignPortal-style **Podman pod** for **IronClaw Reborn**:
+This fork (`ironclaw-agents`) adds a SignPortal-style **Podman pod** for **IronClaw Reborn**:
 `ironclaw-reborn` behind an **nginx TLS sidecar**. Runtime secrets and durable state
 live in a sibling app directory — never in git.
 
@@ -8,7 +8,7 @@ live in a sibling app directory — never in git.
 
 | Path | Role |
 |------|------|
-| `ironclaw-idc/` (this repo) | Code, `Dockerfile`, nginx, `./ironclaw.sh` |
+| `ironclaw-agents/` (this repo) | Code, `Dockerfile`, nginx, `./ironclaw.sh` |
 | `../ironclaw-app/secrets/secrets.env` | Runtime secrets (`chmod 600`) |
 | `../ironclaw-app/secrets/near-credentials/` | IdentyClaw Passport NEAR JSON (`chmod 700`, host-user owned) |
 | `../ironclaw-app/data/identyclaw/sessions/` | Host-cached JWTs (helper + host `idcp`; keep host-user owned) |
@@ -44,7 +44,7 @@ Prefer Let's Encrypt via `~/infra` (same as SignPortal), not self-signed:
 cd ~/infra
 sudo ./generate-cert-letsencrypt.sh ironclaw.dihola.io
 sudo ./install-certs-to-apps.sh
-cd ~/ironclaw-idc && ./ironclaw.sh restart
+cd ~/ironclaw-agents && ./ironclaw.sh restart
 ```
 
 `./ironclaw.sh generate-certs` is only a bootstrap when no LE cert exists yet
@@ -53,7 +53,7 @@ cd ~/ironclaw-idc && ./ironclaw.sh restart
 ## Quick start
 
 ```bash
-cd ~/ironclaw-idc
+cd ~/ironclaw-agents
 chmod +x ironclaw.sh scripts/*.sh
 ./ironclaw.sh init
 # Edit ../ironclaw-app/secrets/secrets.env — set NEARAI_API_KEY, confirm host/port/BASE_URL
@@ -88,17 +88,17 @@ WebUI: open the HTTPS URL and authenticate with the bearer token from
 | `./ironclaw.sh telegram-setup` | Install Telegram and apply `TELEGRAM_*` from `secrets.env` |
 | `./ironclaw.sh idcp-init` | NEAR creds layout + host helper npm deps |
 | `./ironclaw.sh idcp …` | enroll / ensure_session / me / create_hola / verify_hola / … |
-| `./ironclaw.sh create-github-fork` | Create `discernible-io/ironclaw-idc` via `gh` |
+| `./ironclaw.sh create-github-fork` | Create `discernible-io/ironclaw-agents` via `gh` |
 
 Lower-level: `./scripts/deploy-local-podman.sh`, `./scripts/deploy-pod.sh`.
 
 ## Git remotes (fork)
 
 `discernible-io` is a **user** account (not a GitHub org). The fork is created with
-`gh repo fork nearai/ironclaw --fork-name ironclaw-idc` (no `--org`).
+`gh repo fork nearai/ironclaw --fork-name ironclaw-agents` (no `--org`).
 
 ```text
-origin    git@github.com:discernible-io/ironclaw-idc.git
+origin    git@github.com:discernible-io/ironclaw-agents.git
 upstream  git@github.com:nearai/ironclaw.git
 ```
 

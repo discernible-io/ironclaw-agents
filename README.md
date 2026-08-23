@@ -15,7 +15,7 @@ federated peer API** built from
 example [api.lastcradle.io](https://api.lastcradle.io) — **with no API key and
 no extra credentials**. The Passport *is* the credential.
 
-| | [nearai/ironclaw](https://github.com/nearai/ironclaw) (upstream) | This fork ([discernible-io/ironclaw-idc](https://github.com/discernible-io/ironclaw-idc)) |
+| | [nearai/ironclaw](https://github.com/nearai/ironclaw) (upstream) | This fork ([discernible-io/ironclaw-agents](https://github.com/discernible-io/ironclaw-agents)) |
 |---|---|---|
 | Agent runtime | `ironclaw` from source / releases | Same Reborn core — we do not fork the agent loop |
 | Host install | `cargo run`, manual config | Rootless **Podman** via [`./ironclaw.sh`](deploy/podman/README.md) |
@@ -131,8 +131,8 @@ Requires rootless [Podman](https://podman.io/). Full operator reference:
 [`deploy/podman/README.md`](deploy/podman/README.md).
 
 ```bash
-git clone https://github.com/discernible-io/ironclaw-idc.git ~/ironclaw-idc
-cd ~/ironclaw-idc
+git clone https://github.com/discernible-io/ironclaw-agents.git ~/ironclaw-agents
+cd ~/ironclaw-agents
 chmod +x ironclaw.sh scripts/*.sh
 ./ironclaw.sh init
 # Edit ../ironclaw-app/secrets/secrets.env — LLM key, host/port/BASE_URL
@@ -225,7 +225,7 @@ Optional docs MCP at `https://api.identyclaw.com/mcp`.
 
 | Path | Role |
 |------|------|
-| `ironclaw-idc/deploy/` | Podman scripts + IdentyClaw helper |
+| `ironclaw-agents/deploy/` | Podman scripts + IdentyClaw helper |
 | `../ironclaw-app/secrets/near-credentials/` | NEAR key JSON |
 | `../ironclaw-app/data/identyclaw/sessions/` | JWT cache **per API host** |
 | `skills/identyclaw/` | Agent skill |
@@ -831,7 +831,7 @@ Key differences:
 - 🪪 [IdentyClaw home](https://api.identyclaw.com) · [purchase](https://purchase.identyclaw.com)
 - 🧩 Federated peer template: [discernible-io/api-idc](https://github.com/discernible-io/api-idc)
 - 🎮 Example peer: [api.lastcradle.io](https://api.lastcradle.io)
-- 🐛 Fork issues: [discernible-io/ironclaw-idc](https://github.com/discernible-io/ironclaw-idc/issues)
+- 🐛 Fork issues: [discernible-io/ironclaw-agents](https://github.com/discernible-io/ironclaw-agents/issues)
 
 **Upstream IronClaw**
 
