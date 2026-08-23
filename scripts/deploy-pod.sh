@@ -2,7 +2,7 @@
 # Recreate the IronClaw Podman pod: ironclaw-reborn + nginx TLS sidecar.
 #
 # Required:
-#   APP_DIR or IRONCLAW_APP_DIR — host app root (default: ../ironclaw-app)
+#   APP_DIR or IRONCLAW_APP_DIR — host app root (default: ../ironclaw-agents-app)
 #   REBORN_IMAGE — full image ref
 #   NGINX_IMAGE — full image ref
 #
@@ -85,7 +85,7 @@ REBORN_VOLUMES=(
   -v "${APP_DIR}/logs:/workspace/logs:rw${z}"
   -v "${IDCP_SRC}:/opt/idcp:ro${z}"
 )
-# Optional Migadu/Himalaya mail config from ironclaw-app (password via auth.cmd).
+# Optional Migadu/Himalaya mail config from ironclaw-agents-app (password via auth.cmd).
 # Probe executability via podman unshare — host `test -x` fails when the helper
 # is owned by the mapped container uid (uid 1000 inside the Reborn image).
 if ironclaw_himalaya_mounts_ready; then

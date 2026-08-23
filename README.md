@@ -19,7 +19,7 @@ no extra credentials**. The Passport *is* the credential.
 |---|---|---|
 | Agent runtime | `ironclaw` from source / releases | Same Reborn core — we do not fork the agent loop |
 | Host install | `cargo run`, manual config | Rootless **Podman** via [`./ironclaw.sh`](deploy/podman/README.md) |
-| Runtime state | `$IRONCLAW_REBORN_HOME` | Sibling `../ironclaw-app/` (`./ironclaw.sh init`) |
+| Runtime state | `$IRONCLAW_REBORN_HOME` | Sibling `../ironclaw-agents-app/` (`./ironclaw.sh init`) |
 | Agent identity | Not included | IdentyClaw Passport + `idcp` / `builtin.idcp` |
 | Calling peer APIs | Vendor API keys in env | Prove Passport key possession; peer mints a JWT. No API keys. |
 | TLS ingress | Bring your own | nginx sidecar + optional Let's Encrypt |
@@ -86,7 +86,7 @@ credentials.
 
 Clients remint a JWT **per peer**. A home JWT is not accepted at lastcradle (or
 any other peer), and peer tokens are not portable across peers. `idcp` caches each
-host's JWT under `../ironclaw-app/data/identyclaw/sessions/` and never prints it
+host's JWT under `../ironclaw-agents-app/data/identyclaw/sessions/` and never prints it
 to the model.
 
 ```text
@@ -135,17 +135,17 @@ git clone https://github.com/discernible-io/ironclaw-agents.git ~/ironclaw-agent
 cd ~/ironclaw-agents
 chmod +x ironclaw.sh scripts/*.sh
 ./ironclaw.sh init
-# Edit ../ironclaw-app/secrets/secrets.env — LLM key, host/port/BASE_URL
+# Edit ../ironclaw-agents-app/secrets/secrets.env — LLM key, host/port/BASE_URL
 ./ironclaw.sh idcp-init
 ```
 
-`init` creates the sibling `../ironclaw-app/` layout (secrets, certs, data).
-Runtime state lives in `../ironclaw-app/` (override with `IRONCLAW_APP_DIR`).
+`init` creates the sibling `../ironclaw-agents-app/` layout (secrets, certs, data).
+Runtime state lives in `../ironclaw-agents-app/` (override with `IRONCLAW_APP_DIR`).
 
 ### 2. Create a NEAR implicit account
 
 IronClaw uses the host-login path (`idcp`), not OpenClaw plugins. Enrollment
-writes credentials under `../ironclaw-app/secrets/near-credentials/`.
+writes credentials under `../ironclaw-agents-app/secrets/near-credentials/`.
 
 ```bash
 ./ironclaw.sh idcp enroll
@@ -226,8 +226,8 @@ Optional docs MCP at `https://api.identyclaw.com/mcp`.
 | Path | Role |
 |------|------|
 | `ironclaw-agents/deploy/` | Podman scripts + IdentyClaw helper |
-| `../ironclaw-app/secrets/near-credentials/` | NEAR key JSON |
-| `../ironclaw-app/data/identyclaw/sessions/` | JWT cache **per API host** |
+| `../ironclaw-agents-app/secrets/near-credentials/` | NEAR key JSON |
+| `../ironclaw-agents-app/data/identyclaw/sessions/` | JWT cache **per API host** |
 | `skills/identyclaw/` | Agent skill |
 
 ### 6. Log in to any federated peer (no API key)
@@ -562,7 +562,7 @@ IronClaw is the AI assistant you can actually trust with your personal and profe
 > [IdentyClaw Passport § 1](#1-install-this-repo-podman) (`./ironclaw.sh init`),
 > not the upstream release installers below. The curl/PowerShell installers are
 > stock [NEAR IronClaw](https://github.com/nearai/ironclaw) and do **not**
-> include `idcp`, Passport, or the sibling `ironclaw-app/` layout.
+> include `idcp`, Passport, or the sibling `ironclaw-agents-app/` layout.
 
 ### Prerequisites
 
@@ -790,7 +790,7 @@ RUST_LOG=ironclaw=debug cargo run -q -p ironclaw -- repl
 ```
 
 On this fork, prefer `./ironclaw.sh chat` / `./ironclaw.sh exec -- …` against
-`../ironclaw-app/`.
+`../ironclaw-agents-app/`.
 
 ## Development
 

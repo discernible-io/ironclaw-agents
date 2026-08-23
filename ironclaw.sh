@@ -2,11 +2,11 @@
 # IronClaw Reborn HTTPS operator CLI (Podman pod + nginx TLS sidecar).
 #
 # Repo (code): this checkout (ironclaw-agents fork)
-# App dir (secrets/state): ../ironclaw-app  (override: IRONCLAW_APP_DIR)
+# App dir (secrets/state): ../ironclaw-agents-app  (override: IRONCLAW_APP_DIR)
 #
 # Commands:
-#   init                 Create ironclaw-app layout + seed secrets.env from template
-#   generate-certs       Self-signed TLS PEMs into ironclaw-app/certs/
+#   init                 Create ironclaw-agents-app layout + seed secrets.env from template
+#   generate-certs       Self-signed TLS PEMs into ironclaw-agents-app/certs/
 #   build-image          Build ironclaw-reborn + nginx (+ identyclaw helper) images
 #   start [--build]      Recreate pod (always rebuild nginx; reuse Reborn unless --build)
 #   stop                 Stop/remove pod
@@ -105,7 +105,7 @@ identyclaw_image_ref() {
 }
 
 # Nginx listen port is baked from IRONCLAW_APP_PORT at image build time.
-# Always rebuild on start so ironclaw-app port overrides (e.g. 9443) stick.
+# Always rebuild on start so ironclaw-agents-app port overrides (e.g. 9443) stick.
 build_nginx_image() {
   local tag nginx_env port
   tag="$(image_tag)"
@@ -458,7 +458,7 @@ cmd_exec() {
   }
   if [[ $# -eq 0 || "$1" == "-h" || "$1" == "--help" ]]; then
     echo "Usage: $0 exec [--] <command> [args…]" >&2
-    echo "Loads ../ironclaw-app/secrets/secrets.env and sets host IRONCLAW_REBORN_HOME." >&2
+    echo "Loads ../ironclaw-agents-app/secrets/secrets.env and sets host IRONCLAW_REBORN_HOME." >&2
     exit 1
   fi
   [[ "$1" == "--" ]] && shift

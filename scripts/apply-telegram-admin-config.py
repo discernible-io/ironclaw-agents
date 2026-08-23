@@ -2,7 +2,7 @@
 """Apply Telegram admin configuration from env to a running Reborn WebUI.
 
 Reads TELEGRAM_* and IRONCLAW_REBORN_WEBUI_* from the environment (typically
-via ./ironclaw.sh telegram-setup, which sources ironclaw-app/secrets/secrets.env).
+via ./ironclaw.sh telegram-setup, which sources ironclaw-agents-app/secrets/secrets.env).
 Does not print secret values.
 """
 

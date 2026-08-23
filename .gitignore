@@ -125,7 +125,7 @@ mutants.out.old/
 # Prefer .git/info/exclude for personal working directories.
 /app/
 
-# Host TLS material must never be committed (lives in ironclaw-app/certs)
+# Host TLS material must never be committed (lives in ironclaw-agents-app/certs)
 *.pem
 
 # Skill bundles staged into a workspace at activation. Build output, never source.

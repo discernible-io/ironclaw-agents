@@ -19,7 +19,7 @@ ironclaw_app_dir() {
     return 0
   fi
   root="$(ironclaw_repo_root)"
-  sibling="$(cd "$root/.." && pwd)/ironclaw-app"
+  sibling="$(cd "$root/.." && pwd)/ironclaw-agents-app"
   printf '%s' "$sibling"
 }
 

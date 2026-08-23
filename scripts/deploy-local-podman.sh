@@ -7,7 +7,7 @@
 #   ./scripts/deploy-local-podman.sh --skip-build
 #
 # Env:
-#   APP_DIR / IRONCLAW_APP_DIR   Default: ../ironclaw-app
+#   APP_DIR / IRONCLAW_APP_DIR   Default: ../ironclaw-agents-app
 #   TARGET                       development|main
 #   LOCAL_TAG                    Image tag (default: short git SHA)
 #   USE_LOCAL_RESOLVE=1          curl --resolve to 127.0.0.1 for health
