@@ -1,7 +1,7 @@
 //! Caller-level regression for the model-visible `builtin.extension_search`
-//! channel-connection contract (#6618): Telegram's generated-code pairing
-//! recipe must stay discoverable. Linked-account tools remain model-visible
-//! and are a separate optional device-link surface.
+//! channel-connection contract (#6618, #7715): Telegram advertises generated
+//! code pairing for the workspace bot while its personal tools remain visible
+//! and independently protected by device-link setup.
 
 #[allow(dead_code)]
 #[path = "support/mod.rs"]
@@ -14,12 +14,8 @@ use reborn_support::group::RebornIntegrationGroup;
 use reborn_support::reply::RebornScriptedReply;
 use serde_json::json;
 
-#[tokio::test(flavor = "multi_thread")]
-async fn extension_search_advertises_generated_code_pairing_for_telegram() {
-    Box::pin(extension_search_advertises_generated_code_pairing_for_telegram_impl()).await;
-}
-
-async fn extension_search_advertises_generated_code_pairing_for_telegram_impl() {
+#[tokio::test]
+async fn extension_search_separates_telegram_bot_pairing_from_personal_tools() {
     let group = RebornIntegrationGroup::extension_delivery()
         .await
         .expect("extension-delivery group builds with the Telegram manifest");
@@ -57,13 +53,9 @@ async fn extension_search_advertises_generated_code_pairing_for_telegram_impl() 
             .is_some_and(|kinds| kinds.iter().any(|kind| kind == "channel")),
         "model-visible search must still identify Telegram as a channel: {telegram}"
     );
-    let connection = telegram["channel_connection"]
-        .as_object()
-        .unwrap_or_else(|| panic!("Telegram must advertise its pairing recipe: {telegram}"));
     assert_eq!(
-        connection["strategy"].as_str(),
-        Some("web_generated_code"),
-        "Telegram channel identity is generated-code pairing: {telegram}"
+        telegram["channel_connection"]["strategy"], "web_generated_code",
+        "Telegram must advertise the workspace-bot pairing ceremony independently: {telegram}"
     );
     assert!(
         telegram["visible_capability_ids"]

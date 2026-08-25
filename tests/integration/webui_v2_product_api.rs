@@ -1213,6 +1213,38 @@ async fn operator_lists_uninstalled_manifest_admin_configuration_with_secrets_re
         expected_fragments.len(),
         "every telegram field is covered by a help-text expectation"
     );
+    let slack_fields = groups
+        .iter()
+        .find(|group| group["group_id"] == "extension.slack")
+        .and_then(|group| group["fields"].as_array())
+        .expect("slack group lists fields");
+    let expected_slack_fragments = [
+        ("slack_bot_token", "xoxb-"),
+        ("slack_signing_secret", "really came from Slack"),
+        ("slack_team_id", "team_id"),
+        ("slack_api_app_id", "api_app_id"),
+        ("slack_installation_id", "label you choose"),
+        ("slack_bot_user_id", "auth.test"),
+        ("slack_oauth_client_id", "personal"),
+        ("slack_oauth_client_secret", "next to the client ID"),
+    ];
+    for (handle, fragment) in expected_slack_fragments {
+        let description = slack_fields
+            .iter()
+            .find(|field| field["handle"] == handle)
+            .and_then(|field| field["description"].as_str())
+            .unwrap_or_else(|| panic!("field {handle} carries help text on the wire"));
+        assert!(
+            description.contains(fragment),
+            "field {handle} must carry its own manifest help text \
+             (expected fragment {fragment:?}): {description}"
+        );
+    }
+    assert_eq!(
+        slack_fields.len(),
+        expected_slack_fragments.len(),
+        "every slack field is covered by a help-text expectation"
+    );
 
     drop(webui);
     runtime.shutdown().await.expect("runtime shuts down");
@@ -1517,11 +1549,11 @@ async fn user_extension_removal_does_not_erase_admin_configuration() {
 }
 
 /// Tenant administrator configuration is consumed by the channel host but is
-/// never projected onto an ordinary caller's personal setup surface. Telegram
-/// channel identity is generated-code pairing, so mint must succeed while
-/// deployment secrets stay hidden from ordinary callers.
+/// never projected onto an ordinary caller's setup surface. The same ordinary
+/// caller can mint a workspace-bot pairing code while the independent personal
+/// device-link credential remains available.
 #[tokio::test]
-async fn telegram_setup_hides_admin_configuration_and_exposes_pairing() {
+async fn telegram_setup_separates_bot_pairing_from_personal_device_link() {
     let fixture = AdminConfigurationFixture::new("effective-consumer").await;
     let (save_status, save_body) = put_json(
         fixture.operator_router(),
@@ -1642,17 +1674,14 @@ async fn telegram_setup_hides_admin_configuration_and_exposes_pairing() {
         })],
         "one linked session shared by every Telegram tool must render as one setup requirement"
     );
-    assert!(
-        pairing_body["code"]
-            .as_str()
-            .is_some_and(|code| !code.is_empty()),
-        "Telegram pairing mint must return a generated code: {pairing_body}"
-    );
-    assert!(
-        pairing_body["deep_link"]
-            .as_str()
-            .is_some_and(|link| link.contains("t.me/") && link.contains("?start=")),
-        "Telegram pairing mint must return the bot deep link: {pairing_body}"
+    let pairing_code = pairing_body["code"]
+        .as_str()
+        .expect("bot pairing response carries a code");
+    assert_eq!(pairing_code.len(), 8, "pairing code shape: {pairing_body}");
+    assert_eq!(
+        pairing_body["deep_link"],
+        format!("https://t.me/ironclaw_test_bot?start={pairing_code}"),
+        "ordinary callers must receive a bot deep link without linking a personal account"
     );
     fixture.shutdown().await;
 }

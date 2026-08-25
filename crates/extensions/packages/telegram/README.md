@@ -39,10 +39,21 @@ authorization, and tool mediation remain host-owned. Working rules:
 
 ## Upgrade behavior
 
-Channel identity is the generated-code pairing ceremony (`web_generated_code`):
-mint a code in WebUI, open the `t.me` link / QR, or send `/start <code>` to the
-bot. Linked-device auth (`[auth.telegram] method = "device_link"`) stays
-optional for the 15 personal-account tools and is **not** required to DM the
-bot. A previously linked device does not auto-bind bot-channel identity; pair
-once through the pairing panel (or `/start`) to talk to the bot. Device-link
-rows remain valid for tool dispatch.
+Telegram now keeps its two caller-owned connection paths independent:
+
+- Workspace-bot access uses the generic generated-code pairing service. It
+  binds the verified Bot API actor to an IronClaw user and does not create an
+  MTProto session or grant personal-account tools.
+- Personal-account access uses device link. It creates the caller-owned MTProto
+  credential account and does not connect that caller to the workspace bot.
+
+The host-bundled manifest digest migrates installed Telegram records on restart,
+so no database schema migration is required. Existing unversioned bot-pairing
+bindings become active again because generated-code pairing owns that namespace.
+Existing `device-link-v1` bindings and linked sessions remain available to
+personal tools but no longer satisfy bot-channel admission. Users who only
+completed device link must pair the bot once if they want that entrypoint.
+
+Rollback restores `device_link` as the channel strategy. That makes generated
+bot-pairing bindings inert and lets existing `device-link-v1` bindings satisfy
+channel admission again; linked personal sessions are not deleted.

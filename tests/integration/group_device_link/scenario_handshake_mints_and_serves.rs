@@ -31,8 +31,6 @@ pub async fn run(
     // per-user install, by contrast, gates on this user having a credential
     // for the extension's declared auth surface. Installing first would park
     // that turn on the very gate the link is there to satisfy.
-    // Channel identity is pairing, not this handshake: completing a device
-    // link must mint the personal tools without auto-binding the bot channel.
     let linker = group
         .thread("conv-device-link-handshake")
         .with_actor_id(HANDSHAKE_ACTOR_ID)
@@ -53,13 +51,15 @@ pub async fn run(
         .has_any_active_identity_binding(LINKED_VENDOR_ID, &actor)
         .await?
     {
-        return Err("device-link completion must not persist pairing-channel identity".into());
+        return Err(
+            "personal device-link completion persisted a workspace-bot channel identity".into(),
+        );
     }
     if channel_connection
         .caller_channel_connected(LINKED_EXTENSION_ID, &actor)
         .await?
     {
-        return Err("device-link completion must not connect the Telegram bot channel".into());
+        return Err("personal device-link completion connected the Telegram bot channel".into());
     }
 
     // PROPOSAL §4.5's ownership pin, asserted on the account the production
@@ -111,6 +111,17 @@ pub async fn run(
     installer
         .assert_tool_invoked("builtin.extension_install")
         .await?;
+    if channel_connection
+        .has_any_active_identity_binding(LINKED_VENDOR_ID, &actor)
+        .await?
+        || channel_connection
+            .caller_channel_connected(LINKED_EXTENSION_ID, &actor)
+            .await?
+    {
+        return Err(
+            "installing personal-account tools created a workspace-bot channel binding".into(),
+        );
+    }
 
     //
     // A tool call now resolves the caller to the account the handshake minted,
