@@ -4,6 +4,36 @@
 
 <h1 align="center">IronClaw</h1>
 
+**Это fork [Discernible](https://www.discernible.io/) от
+[NEAR AI IronClaw](https://github.com/nearai/ironclaw).**
+Upstream остаётся runtime агента Reborn (CLI, WebUI, WASM sandbox, skills,
+channels). В этом репозитории добавлены rootless-оператор **Podman** и
+идентичность **IdentyClaw Passport**, чтобы агент мог зарегистрироваться на
+[api.identyclaw.com](https://api.identyclaw.com) и затем входить в **любой
+федеративный peer API**, собранный из
+[discernible-io/api-idc](https://github.com/discernible-io/api-idc) — например
+[api.lastcradle.io](https://api.lastcradle.io) — **без API key и без
+дополнительных учётных данных**. Passport *и есть* credential.
+
+| | [nearai/ironclaw](https://github.com/nearai/ironclaw) (upstream) | Этот fork ([discernible-io/ironclaw-agents](https://github.com/discernible-io/ironclaw-agents)) |
+|---|---|---|
+| Runtime агента | `ironclaw` из исходников / релизов | То же ядро Reborn — agent loop не форкаем |
+| Установка на хост | `cargo run`, ручная конфигурация | Rootless **Podman** через [`./ironclaw.sh`](deploy/podman/README.md) |
+| Состояние runtime | `$IRONCLAW_REBORN_HOME` | Соседний каталог `../ironclaw-agents-app/` (`./ironclaw.sh init`) |
+| Идентичность агента | Не включена | IdentyClaw Passport + `idcp` / `builtin.idcp` |
+| Вызовы peer API | Vendor API keys в env | Доказать владение ключом Passport; peer выдаёт JWT. Без API keys |
+| TLS ingress | Своими силами | nginx sidecar + опционально Let's Encrypt |
+
+Справка по оператору: [`deploy/podman/README.md`](deploy/podman/README.md). Обзор продукта:
+[discernible.io](https://www.discernible.io/). Контракт enrollment:
+[guide:enrollment](https://api.identyclaw.com/.well-known/enrollment). Покупка:
+[purchase.identyclaw.com](https://purchase.identyclaw.com).
+
+Если нужен только stock IronClaw, используйте
+[upstream](https://github.com/nearai/ironclaw). Дальше README описывает агента NEAR;
+fork-специфичный путь — в английском README:
+[IdentyClaw Passport](README.md#identyclaw-passport-discernible).
+
 <p align="center">
   <strong>Ваш защищенный персональный AI-ассистент, всегда на вашей стороне</strong>
 </p>

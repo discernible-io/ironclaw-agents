@@ -4,6 +4,36 @@
 
 <h1 align="center">IronClaw</h1>
 
+**이것은 [Discernible](https://www.discernible.io/)의
+[NEAR AI IronClaw](https://github.com/nearai/ironclaw) fork입니다.**
+업스트림은 여전히 Reborn 에이전트 런타임(CLI, WebUI, WASM 샌드박스, skills,
+channels)입니다. 이 저장소는 rootless **Podman** 오퍼레이터와 **IdentyClaw
+Passport** 신원을 추가해, 에이전트가
+[api.identyclaw.com](https://api.identyclaw.com)에서 온보딩한 뒤
+[discernible-io/api-idc](https://github.com/discernible-io/api-idc)로 만든
+**어떤 federated peer API**든 — 예:
+[api.lastcradle.io](https://api.lastcradle.io) — **API 키나 추가 자격 증명 없이**
+로그인할 수 있게 합니다. Passport *자체가* 자격 증명입니다.
+
+| | [nearai/ironclaw](https://github.com/nearai/ironclaw) (업스트림) | 이 fork ([discernible-io/ironclaw-agents](https://github.com/discernible-io/ironclaw-agents)) |
+|---|---|---|
+| 에이전트 런타임 | 소스 / 릴리스의 `ironclaw` | 동일한 Reborn 코어 — agent loop는 fork하지 않음 |
+| 호스트 설치 | `cargo run`, 수동 설정 | Rootless **Podman** ([`./ironclaw.sh`](deploy/podman/README.md)) |
+| 런타임 상태 | `$IRONCLAW_REBORN_HOME` | 형제 디렉터리 `../ironclaw-agents-app/` (`./ironclaw.sh init`) |
+| 에이전트 신원 | 포함되지 않음 | IdentyClaw Passport + `idcp` / `builtin.idcp` |
+| peer API 호출 | env의 벤더 API 키 | Passport 키 소유를 증명하면 peer가 JWT 발급. API 키 불필요 |
+| TLS ingress | 직접 준비 | nginx sidecar + 선택적 Let's Encrypt |
+
+오퍼레이터 참고: [`deploy/podman/README.md`](deploy/podman/README.md). 제품 개요:
+[discernible.io](https://www.discernible.io/). 등록 컨트랙트:
+[guide:enrollment](https://api.identyclaw.com/.well-known/enrollment). 구매:
+[purchase.identyclaw.com](https://purchase.identyclaw.com).
+
+순정 IronClaw만 필요하면
+[업스트림](https://github.com/nearai/ironclaw)을 사용하세요. 이 README의 나머지는
+여전히 NEAR 에이전트를 설명합니다. fork 전용 경로는 영어 README의
+[IdentyClaw Passport](README.md#identyclaw-passport-discernible)를 보세요.
+
 <p align="center">
   <strong>언제나 당신 편인 안전한 개인 AI 어시스턴트</strong>
 </p>

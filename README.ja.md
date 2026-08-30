@@ -4,6 +4,36 @@
 
 <h1 align="center">IronClaw</h1>
 
+**これは [Discernible](https://www.discernible.io/) による
+[NEAR AI IronClaw](https://github.com/nearai/ironclaw) の fork です。**
+上流は引き続き Reborn エージェントランタイム（CLI、WebUI、WASM サンドボックス、
+skills、channels）です。このリポジトリは rootless の **Podman** オペレータと
+**IdentyClaw Passport** アイデンティティを追加し、エージェントが
+[api.identyclaw.com](https://api.identyclaw.com) でオンボードしたうえで、
+[discernible-io/api-idc](https://github.com/discernible-io/api-idc) から構築された
+**任意のフェデレーテッド peer API** — 例:
+[api.lastcradle.io](https://api.lastcradle.io) — に **API キーも追加クレデンシャルもなしで**
+ログインできるようにします。Passport *そのもの* がクレデンシャルです。
+
+| | [nearai/ironclaw](https://github.com/nearai/ironclaw)（上流） | この fork（[discernible-io/ironclaw-agents](https://github.com/discernible-io/ironclaw-agents)） |
+|---|---|---|
+| エージェントランタイム | ソース / リリースの `ironclaw` | 同じ Reborn コア — agent loop は fork しない |
+| ホストインストール | `cargo run`、手動設定 | Rootless **Podman**（[`./ironclaw.sh`](deploy/podman/README.md)） |
+| ランタイム状態 | `$IRONCLAW_REBORN_HOME` | 隣接の `../ironclaw-agents-app/`（`./ironclaw.sh init`） |
+| エージェント識別 | 含まれない | IdentyClaw Passport + `idcp` / `builtin.idcp` |
+| peer API 呼び出し | env のベンダー API キー | Passport 鍵の所持を証明し、peer が JWT を発行。API キー不要 |
+| TLS ingress | 各自で用意 | nginx sidecar + 任意の Let's Encrypt |
+
+オペレータ参考: [`deploy/podman/README.md`](deploy/podman/README.md)。製品概要:
+[discernible.io](https://www.discernible.io/)。登録コントラクト:
+[guide:enrollment](https://api.identyclaw.com/.well-known/enrollment)。購入:
+[purchase.identyclaw.com](https://purchase.identyclaw.com)。
+
+純正の IronClaw だけが必要な場合は
+[上流](https://github.com/nearai/ironclaw) を使ってください。以降はこの README も
+NEAR エージェントの説明が中心です。fork 固有の手順は英語 README の
+[IdentyClaw Passport](README.md#identyclaw-passport-discernible) を参照してください。
+
 <p align="center">
   <strong>あなたの味方になる、安全なパーソナルAIアシスタント</strong>
 </p>

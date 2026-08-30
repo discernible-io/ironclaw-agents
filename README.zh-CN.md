@@ -4,6 +4,35 @@
 
 <h1 align="center">IronClaw</h1>
 
+**这是 [Discernible](https://www.discernible.io/) 对
+[NEAR AI IronClaw](https://github.com/nearai/ironclaw) 的 fork。**
+上游仍是 Reborn 智能体运行时（CLI、WebUI、WASM 沙箱、skills、channels）。
+本仓库额外提供无 root 的 **Podman** 运维脚本与 **IdentyClaw Passport**
+身份，使智能体可在 [api.identyclaw.com](https://api.identyclaw.com) 完成注册，
+并登录由 [discernible-io/api-idc](https://github.com/discernible-io/api-idc)
+构建的**任意联邦 peer API**——例如
+[api.lastcradle.io](https://api.lastcradle.io)——**无需 API key，也无需额外凭证**。
+Passport **就是**凭证。
+
+| | [nearai/ironclaw](https://github.com/nearai/ironclaw)（上游） | 本 fork（[discernible-io/ironclaw-agents](https://github.com/discernible-io/ironclaw-agents)） |
+|---|---|---|
+| 智能体运行时 | 源码 / 发行版中的 `ironclaw` | 同一套 Reborn 核心 — 不 fork agent loop |
+| 主机安装 | `cargo run`、手动配置 | 无 root **Podman**，见 [`./ironclaw.sh`](deploy/podman/README.md) |
+| 运行时状态 | `$IRONCLAW_REBORN_HOME` | 同级目录 `../ironclaw-agents-app/`（`./ironclaw.sh init`） |
+| 智能体身份 | 未包含 | IdentyClaw Passport + `idcp` / `builtin.idcp` |
+| 调用 peer API | 环境变量中的厂商 API key | 证明持有 Passport 密钥；peer 签发 JWT。无需 API key |
+| TLS 入口 | 自行准备 | nginx sidecar + 可选 Let's Encrypt |
+
+运维参考：[`deploy/podman/README.md`](deploy/podman/README.md)。产品概览：
+[discernible.io](https://www.discernible.io/)。注册合约：
+[guide:enrollment](https://api.identyclaw.com/.well-known/enrollment)。购买：
+[purchase.identyclaw.com](https://purchase.identyclaw.com)。
+
+若只需要原版 IronClaw，请使用
+[上游仓库](https://github.com/nearai/ironclaw)。下文仍主要描述 NEAR 智能体；
+fork 专用说明见英文 README 的
+[IdentyClaw Passport](README.md#identyclaw-passport-discernible)。
+
 <p align="center">
   <strong>安全可靠的个人 AI 助手，始终站在你这边</strong>
 </p>
