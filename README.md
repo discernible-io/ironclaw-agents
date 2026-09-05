@@ -136,19 +136,24 @@ cd ~/ironclaw-agents
 chmod +x ironclaw.sh scripts/*.sh
 ./ironclaw.sh init
 # Edit ../ironclaw-agents-app/secrets/secrets.env — LLM key, host/port/BASE_URL
-./ironclaw.sh setup         # IdentyClaw Passport (enroll → purchase → home session)
+./ironclaw.sh setup         # populate -app; auto NEAR account; Passport mint guide
 ```
 
 `init` creates the sibling `../ironclaw-agents-app/` layout (secrets, certs, data).
 Runtime state lives in `../ironclaw-agents-app/` (override with `IRONCLAW_APP_DIR`).
 
-`setup` installs the host helper, enrolls a NEAR implicit account, pauses for mint
-at [purchase.identyclaw.com](https://purchase.identyclaw.com), then activates the
-home session. Resume a paused mint with `./ironclaw.sh idcp-setup`.
+`setup` populates the app dir from `secrets.env`, then **automatically** creates a
+NEAR implicit account (no operator input). It prints the recipient hex plus any
+Passport fields already collected (A2A / webhook URL, avatar URL, ContactURI)
+as **[selected]**, and asks you to mint at
+[purchase.identyclaw.com](https://purchase.identyclaw.com). Resume a paused mint
+with `./ironclaw.sh idcp-setup`. After mint, chat via `./ironclaw.sh chat` (WebUI)
+or Telegram once `telegram-setup` has run.
 
 ### 2. Create a NEAR implicit account
 
-`./ironclaw.sh setup` (or `idcp-setup`) runs this automatically. Manual path:
+`./ironclaw.sh setup` (or `idcp-setup`) **creates the implicit account
+automatically** — no operator input. Manual path:
 
 ```bash
 ./ironclaw.sh idcp enroll
@@ -195,8 +200,9 @@ agent's `implicit_account_id` as the Passport recipient.
 steps if you paused:
 
 1. Open **[https://purchase.identyclaw.com](https://purchase.identyclaw.com)**.
-2. Fill the Passport form (name, creature/role, ContactURI, traits, longevity,
-   optional webhook/avatar — see the
+2. Fill the Passport form. `setup` marks collected A2A / webhook URL, avatar
+   URL, and ContactURI as **[selected]** — paste those, then name, creature/role,
+   traits, and longevity (see the
    [enrollment guide](https://api.identyclaw.com/api/mcp/resource/doc:reference:enrollment)).
 3. Paste the agent's **64-char hex** `implicit_account_id` as the NEAR account
    that will **receive** the Passport (implicit hex account, not a named

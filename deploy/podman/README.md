@@ -57,17 +57,20 @@ cd ~/ironclaw-agents
 chmod +x ironclaw.sh scripts/*.sh
 ./ironclaw.sh init
 # Edit ../ironclaw-agents-app/secrets/secrets.env — set NEARAI_API_KEY, confirm host/port/BASE_URL
-./ironclaw.sh setup          # IdentyClaw Passport (enroll → purchase → session)
+./ironclaw.sh setup          # populate -app; auto NEAR account; mint Passport
 ./ironclaw.sh generate-certs
 ./ironclaw.sh build-image    # first Reborn image build is long
 ./ironclaw.sh start
 ./ironclaw.sh status
 ```
 
-Run **setup and start as separate commands** (do not chain them). Setup is
-interactive: NEAR enroll, mint pause at
-[purchase.identyclaw.com](https://purchase.identyclaw.com), then home session.
-Resume a paused Passport step with `./ironclaw.sh idcp-setup`.
+Run **setup and start as separate commands** (do not chain them). Setup
+populates the app dir, **automatically** creates a NEAR implicit account (no
+operator input), pauses for mint at
+[purchase.identyclaw.com](https://purchase.identyclaw.com) with collected
+Passport fields marked **[selected]**, then activates the home session.
+Resume a paused Passport step with `./ironclaw.sh idcp-setup`. After mint,
+chat with `./ironclaw.sh chat` (WebUI) or Telegram.
 
 Health (from this host):
 
@@ -84,7 +87,7 @@ WebUI: open the HTTPS URL and authenticate with the bearer token from
 | Command | Purpose |
 |---------|---------|
 | `./ironclaw.sh init` | Create `ironclaw-agents-app` + seed `secrets.env` |
-| `./ironclaw.sh setup` | IdentyClaw Passport path (enroll → purchase → session) |
+| `./ironclaw.sh setup` | Populate -app; last: auto NEAR enroll + Passport mint guide |
 | `./ironclaw.sh generate-certs` | Self-signed `fullchain.pem` / `privkey.pem` |
 | `./ironclaw.sh build-image` | Build Reborn + nginx images |
 | `./ironclaw.sh start` | Recreate pod (always rebuilds nginx; `--build` also rebuilds Reborn) |

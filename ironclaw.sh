@@ -6,7 +6,7 @@
 #
 # Commands:
 #   init                 Create ironclaw-agents-app layout + seed secrets.env from template
-#   setup                IdentyClaw Passport path (enroll → purchase → home session)
+#   setup                Populate -app; last: auto NEAR enroll + Passport mint guide
 #   generate-certs       Self-signed TLS PEMs into ironclaw-agents-app/certs/
 #   build-image          Build ironclaw-reborn + nginx (+ identyclaw helper) images
 #   start [--build]      Recreate pod (always rebuild nginx; reuse Reborn unless --build)
@@ -20,7 +20,7 @@
 #   env                  Print rebuild-safe app-dir env summary (no secret values)
 #   exec <cmd…>          Run a host command with secrets.env loaded + host Reborn home
 #   idcp-init | identyclaw-init   Layout near-credentials + install helper npm deps
-#   idcp-setup | identyclaw-setup  Passport only: install → enroll → purchase → session
+#   idcp-setup | identyclaw-setup  Resume Passport: auto enroll → purchase → session
 #   idcp <cmd> | identyclaw <cmd> Host CLI: enroll|ensure_session|me|create_hola|…
 #   create-github-fork   Create discernible-io/ironclaw-agents fork via gh (once)
 
@@ -66,7 +66,7 @@ cmd_init() {
   chmod 600 "$secrets" 2>/dev/null || true
   ironclaw_ensure_telegram_env_template
   echo "Next: edit secrets (LLM key, host/port), then:"
-  echo "  ./ironclaw.sh setup          # IdentyClaw Passport (enroll → purchase → session)"
+  echo "  ./ironclaw.sh setup          # populate -app; auto NEAR account; mint Passport"
   echo "  ./ironclaw.sh generate-certs && ./ironclaw.sh build-image && ./ironclaw.sh start"
 }
 
@@ -241,14 +241,14 @@ PY
   fi
 }
 
-# Natural IdentyClaw path: install → enroll → purchase guide → ensure_session → me.
-# Invoked from setup (required) or standalone to resume after mint.
+# Natural IdentyClaw path: auto enroll (no operator input) → purchase guide → session.
+# Invoked from setup (last step) or standalone to resume after mint.
 cmd_idcp_setup() {
   ironclaw_ensure_app_layout
   cmd_identyclaw_init
 
   echo ""
-  echo "Enrolling NEAR implicit account (agent key file — not the paying wallet) ..."
+  echo "Creating NEAR implicit account (automatic — no operator input) ..."
   local enroll_json account_id
   enroll_json="$(_idcp_host enroll)"
   echo "$enroll_json"
@@ -262,15 +262,17 @@ except Exception:
 print(d.get("account_id") or "")
 ' 2>/dev/null || true
   )"
+  account_id="${account_id//[[:space:]]/}"
   if [[ -z "$account_id" ]]; then
     account_id="$(_idcp_account_id)"
+    account_id="${account_id//[[:space:]]/}"
   fi
   if [[ -z "$account_id" ]]; then
     echo "Could not determine implicit_account_id after enroll." >&2
     exit 1
   fi
+  echo "Recipient account (automatic): ${account_id}"
 
-  # Already bound? Skip purchase pause.
   local tmp_sess tmp_me
   tmp_sess="$(mktemp)"
   tmp_me="$(mktemp)"
@@ -280,24 +282,19 @@ print(d.get("account_id") or "")
     echo "Passport already active on home (api.identyclaw.com):"
     cat "$tmp_me"
     rm -f "$tmp_sess" "$tmp_me"
+    _ironclaw_print_chat_next
     return 0
   fi
   rm -f "$tmp_sess" "$tmp_me"
 
-  echo ""
-  echo "──────────────────────────────────────────────────────────────"
-  echo "Craft your Passport (required)"
-  echo "──────────────────────────────────────────────────────────────"
-  echo "1. Fund a SEPARATE checkout wallet with NEAR (e.g. HOT Wallet)."
-  echo "   Do not paste the agent key file into chat or the portal."
-  echo "2. Open: https://purchase.identyclaw.com"
-  echo "3. Paste this 64-char hex as the NEAR recipient account:"
-  echo ""
-  echo "   ${account_id}"
-  echo ""
-  echo "4. Connect the paying wallet, mint, wait for confirmation."
-  echo "   Docs: https://www.discernible.io/  ·  https://api.identyclaw.com/.well-known/enrollment"
-  echo "──────────────────────────────────────────────────────────────"
+  if [[ -f "$(ironclaw_app_dir)/secrets/secrets.env" ]]; then
+    ironclaw_load_secrets || true
+  fi
+  print_passport_purchase_guide \
+    "$account_id" \
+    "$(ironclaw_passport_webhook_url)" \
+    "${IDENTYCLAW_AVATAR_URL:-}" \
+    "$(ironclaw_passport_contact_uri)"
 
   if [[ ! -t 0 ]]; then
     echo "Non-interactive TTY: after minting, re-run: ./ironclaw.sh idcp-setup" >&2
@@ -314,6 +311,7 @@ print(d.get("account_id") or "")
     if _idcp_host ensure_session && _idcp_host me; then
       echo ""
       echo "IdentyClaw home session ready."
+      _ironclaw_print_chat_next
       return 0
     fi
     if (( attempt == max_attempts )); then
@@ -331,9 +329,22 @@ print(d.get("account_id") or "")
   exit 1
 }
 
-# Initial interactive install step after init: IdentyClaw Passport (Hermes-shaped).
+_ironclaw_print_chat_next() {
+  local tg="${TELEGRAM_BOT_USERNAME:-${IRONCLAW_REBORN_TELEGRAM_BOT_USERNAME:-}}"
+  tg="${tg#@}"
+  echo ""
+  echo "After mint + start, chat as the operator:"
+  echo "  Console / WebUI:  ./ironclaw.sh chat"
+  if [[ -n "$tg" ]]; then
+    echo "  Telegram:         @${tg}"
+  else
+    echo "  Telegram:         ./ironclaw.sh telegram-setup   # after TELEGRAM_BOT_TOKEN + USERNAME in secrets.env"
+  fi
+}
+
+# Populate -app from secrets.env, then auto-enroll NEAR (last) + mint guide.
 cmd_setup() {
-  local app_dir secrets
+  local app_dir secrets webhook avatar contact
   app_dir="$(ironclaw_app_dir)"
   secrets="${app_dir}/secrets/secrets.env"
   if [[ ! -f "$secrets" ]]; then
@@ -342,6 +353,34 @@ cmd_setup() {
   else
     ironclaw_ensure_app_layout
   fi
+  ironclaw_load_secrets || true
+  ironclaw_ensure_telegram_env_template
+  ironclaw_load_secrets || true
+
+  echo ""
+  echo "==> Passport fields (Enter keeps the value; empty means collect at purchase.identyclaw.com)"
+  webhook="$(ironclaw_passport_webhook_url)"
+  avatar="${IDENTYCLAW_AVATAR_URL:-}"
+  contact="$(ironclaw_passport_contact_uri)"
+  if [[ -t 0 && "${SKIP_SETUP_PROMPTS:-0}" != "1" ]]; then
+    [[ -z "$webhook" || "$webhook" == *127.0.0.1* || "$webhook" == *localhost* ]] \
+      && webhook="$(identyclaw_prompt_with_default "  A2A / webhook URL" "$webhook")"
+    [[ -z "$avatar" ]] && avatar="$(identyclaw_prompt_with_default "  Avatar image URL" "$avatar")"
+    [[ -z "$contact" ]] && contact="$(identyclaw_prompt_with_default "  ContactURI" "$contact")"
+  fi
+  if [[ -n "$webhook" ]]; then
+    _ironclaw_upsert_secrets_var "$secrets" IRONCLAW_REBORN_WEBUI_BASE_URL "$webhook"
+    export IRONCLAW_REBORN_WEBUI_BASE_URL="$webhook"
+  fi
+  if [[ -n "$avatar" ]]; then
+    _ironclaw_upsert_secrets_var "$secrets" IDENTYCLAW_AVATAR_URL "$avatar"
+    export IDENTYCLAW_AVATAR_URL="$avatar"
+  fi
+  if [[ -n "$contact" ]]; then
+    _ironclaw_upsert_secrets_var "$secrets" IDENTYCLAW_CONTACT_URI "$contact"
+    export IDENTYCLAW_CONTACT_URI="$contact"
+  fi
+
   echo ""
   echo "=== IdentyClaw Passport (this fork) ==="
   cmd_idcp_setup
@@ -349,6 +388,7 @@ cmd_setup() {
   echo "Setup finished. Next:"
   echo "  # Confirm LLM key / host in ${secrets}"
   echo "  ./ironclaw.sh generate-certs && ./ironclaw.sh build-image && ./ironclaw.sh start"
+  echo "  ./ironclaw.sh chat            # WebUI console"
 }
 
 cmd_identyclaw() {

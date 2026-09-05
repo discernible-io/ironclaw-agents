@@ -278,3 +278,108 @@ ironclaw_prepare_identyclaw_dirs() {
   mkdir -p "$cred_dir" "$session_dir"
   chmod 700 "$cred_dir" "$session_dir" "$session_parent" 2>/dev/null || true
 }
+
+identyclaw_format_contact_uri() {
+  local explicit="${1:-}" tg="${2:-}" email="${3:-}" domain
+  explicit="${explicit//[[:space:]]/}"
+  if [[ -n "$explicit" ]]; then
+    printf '%s' "$explicit"
+    return 0
+  fi
+  tg="${tg#@}"
+  tg="${tg//[[:space:]]/}"
+  if [[ -n "$tg" ]]; then
+    printf 'telegram:telegram.com:@%s' "$tg"
+    return 0
+  fi
+  email="${email//[[:space:]]/}"
+  if [[ -n "$email" && "$email" == *@* ]]; then
+    domain="${email#*@}"
+    printf 'email:%s:%s' "$domain" "$email"
+    return 0
+  fi
+}
+
+print_passport_field() {
+  local name="$1" value="${2:-}" collect_hint="${3:-enter on purchase.identyclaw.com}"
+  if [[ -n "$value" ]]; then
+    printf '  %-22s [selected]  %s\n' "$name" "$value"
+  else
+    printf '  %-22s [collect]   %s\n' "$name" "$collect_hint"
+  fi
+}
+
+print_passport_webhook_field() {
+  local name="$1" value="${2:-}"
+  if [[ -z "$value" ]]; then
+    print_passport_field "$name" "" "public HTTPS A2A / webhook URL"
+    return 0
+  fi
+  if [[ "$value" == *127.0.0.1* || "$value" == *localhost* ]]; then
+    printf '  %-22s [collect]   %s  (loopback — paste a public HTTPS URL on the portal)\n' "$name" "$value"
+    return 0
+  fi
+  print_passport_field "$name" "$value" ""
+}
+
+identyclaw_prompt_with_default() {
+  local prompt="$1" default="${2:-}" var=""
+  if [[ ! -t 0 ]] || [[ "${SKIP_SETUP_PROMPTS:-0}" == "1" ]]; then
+    printf '%s' "$default"
+    return 0
+  fi
+  if [[ -n "$default" ]]; then
+    read -r -p "${prompt} [${default}]: " var || true
+  else
+    read -r -p "${prompt}: " var || true
+  fi
+  printf '%s' "${var:-$default}"
+}
+
+ironclaw_passport_webhook_url() {
+  local host port
+  if [[ -n "${IRONCLAW_REBORN_WEBUI_BASE_URL:-}" ]]; then
+    printf '%s' "${IRONCLAW_REBORN_WEBUI_BASE_URL%/}"
+    return 0
+  fi
+  host="$(ironclaw_tier_domain 2>/dev/null || true)"
+  port="$(ironclaw_tier_port 2>/dev/null || true)"
+  if [[ -n "$host" && -n "$port" ]]; then
+    printf 'https://%s:%s' "$host" "$port"
+  fi
+}
+
+ironclaw_passport_contact_uri() {
+  identyclaw_format_contact_uri \
+    "${IDENTYCLAW_CONTACT_URI:-}" \
+    "${TELEGRAM_BOT_USERNAME:-${IRONCLAW_REBORN_TELEGRAM_BOT_USERNAME:-}}" \
+    "${IRONCLAW_CONTACT_EMAIL:-}"
+}
+
+print_passport_purchase_guide() {
+  local account_id="${1:?}" webhook_url="${2:-}" avatar_url="${3:-}" contact_uri="${4:-}" label="${5:-}"
+  echo ""
+  echo "──────────────────────────────────────────────────────────────"
+  if [[ -n "$label" ]]; then
+    echo "Craft your Passport for ${label} at https://purchase.identyclaw.com"
+  else
+    echo "Craft your Passport at https://purchase.identyclaw.com"
+  fi
+  echo "──────────────────────────────────────────────────────────────"
+  echo "1. Fund a SEPARATE checkout wallet with NEAR (e.g. HOT Wallet)."
+  echo "   Do not paste the agent key file into chat or the portal."
+  echo "2. Open: https://purchase.identyclaw.com"
+  echo "3. Paste this 64-char hex as the NEAR recipient account:"
+  echo ""
+  echo "   ${account_id}"
+  echo ""
+  echo "4. Fill the Passport form. Values already collected by setup are [selected]:"
+  print_passport_webhook_field "A2A / webhook URL" "$webhook_url"
+  print_passport_field "Avatar image URL" "$avatar_url" "https://identyclaw.com/avatar.png (portal default) or any https image"
+  print_passport_field "ContactURI" "$contact_uri" "scheme:authority:identifier  e.g. telegram:telegram.com:@YourBot  or  email:domain:you@domain"
+  echo ""
+  echo "   Also collect on the portal: name, creature/role, traits, longevity."
+  echo "5. Connect the paying wallet, mint, wait for confirmation."
+  echo "   Docs: https://www.discernible.io/  ·  https://api.identyclaw.com/.well-known/enrollment"
+  echo "──────────────────────────────────────────────────────────────"
+}
