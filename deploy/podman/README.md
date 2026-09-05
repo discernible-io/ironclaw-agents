@@ -57,11 +57,17 @@ cd ~/ironclaw-agents
 chmod +x ironclaw.sh scripts/*.sh
 ./ironclaw.sh init
 # Edit ../ironclaw-agents-app/secrets/secrets.env — set NEARAI_API_KEY, confirm host/port/BASE_URL
+./ironclaw.sh setup          # IdentyClaw Passport (enroll → purchase → session)
 ./ironclaw.sh generate-certs
 ./ironclaw.sh build-image    # first Reborn image build is long
 ./ironclaw.sh start
 ./ironclaw.sh status
 ```
+
+Run **setup and start as separate commands** (do not chain them). Setup is
+interactive: NEAR enroll, mint pause at
+[purchase.identyclaw.com](https://purchase.identyclaw.com), then home session.
+Resume a paused Passport step with `./ironclaw.sh idcp-setup`.
 
 Health (from this host):
 
@@ -78,6 +84,7 @@ WebUI: open the HTTPS URL and authenticate with the bearer token from
 | Command | Purpose |
 |---------|---------|
 | `./ironclaw.sh init` | Create `ironclaw-agents-app` + seed `secrets.env` |
+| `./ironclaw.sh setup` | IdentyClaw Passport path (enroll → purchase → session) |
 | `./ironclaw.sh generate-certs` | Self-signed `fullchain.pem` / `privkey.pem` |
 | `./ironclaw.sh build-image` | Build Reborn + nginx images |
 | `./ironclaw.sh start` | Recreate pod (always rebuilds nginx; `--build` also rebuilds Reborn) |
@@ -87,6 +94,7 @@ WebUI: open the HTTPS URL and authenticate with the bearer token from
 | `./ironclaw.sh token` | Print WebUI token |
 | `./ironclaw.sh telegram-setup` | Install Telegram and apply `TELEGRAM_*` from `secrets.env` |
 | `./ironclaw.sh idcp-init` | NEAR creds layout + host helper npm deps |
+| `./ironclaw.sh idcp-setup` | Passport only: install → enroll → purchase → session |
 | `./ironclaw.sh idcp …` | enroll / ensure_session / me / create_hola / verify_hola / … |
 | `./ironclaw.sh create-github-fork` | Create `discernible-io/ironclaw-agents` via `gh` |
 
@@ -123,12 +131,10 @@ plus Hermes-shaped `idcp` CLI on the agent PATH. Passport NEAR credentials +
 `doc:skills` IronClaw path:
 
 ```bash
-./ironclaw.sh idcp-init
-./ironclaw.sh idcp enroll
-# Mint Passport at https://purchase.identyclaw.com
+./ironclaw.sh setup                   # includes Passport end-to-end
+# or resume Passport only:
+./ironclaw.sh idcp-setup
 ./ironclaw.sh build-image && ./ironclaw.sh start   # starts helper when creds exist
-./ironclaw.sh idcp ensure_session
-./ironclaw.sh idcp me
 ./ironclaw.sh idcp create_hola --recipient MUNDO
 ```
 

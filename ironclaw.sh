@@ -6,6 +6,7 @@
 #
 # Commands:
 #   init                 Create ironclaw-agents-app layout + seed secrets.env from template
+#   setup                IdentyClaw Passport path (enroll → purchase → home session)
 #   generate-certs       Self-signed TLS PEMs into ironclaw-agents-app/certs/
 #   build-image          Build ironclaw-reborn + nginx (+ identyclaw helper) images
 #   start [--build]      Recreate pod (always rebuild nginx; reuse Reborn unless --build)
@@ -19,6 +20,7 @@
 #   env                  Print rebuild-safe app-dir env summary (no secret values)
 #   exec <cmd…>          Run a host command with secrets.env loaded + host Reborn home
 #   idcp-init | identyclaw-init   Layout near-credentials + install helper npm deps
+#   idcp-setup | identyclaw-setup  Passport only: install → enroll → purchase → session
 #   idcp <cmd> | identyclaw <cmd> Host CLI: enroll|ensure_session|me|create_hola|…
 #   create-github-fork   Create discernible-io/ironclaw-agents fork via gh (once)
 
@@ -29,7 +31,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$ROOT/scripts/lib-podman.sh"
 
 usage() {
-  sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -63,7 +65,9 @@ cmd_init() {
 
   chmod 600 "$secrets" 2>/dev/null || true
   ironclaw_ensure_telegram_env_template
-  echo "Next: edit secrets, then ./ironclaw.sh generate-certs && ./ironclaw.sh build-image && ./ironclaw.sh start"
+  echo "Next: edit secrets (LLM key, host/port), then:"
+  echo "  ./ironclaw.sh setup          # IdentyClaw Passport (enroll → purchase → session)"
+  echo "  ./ironclaw.sh generate-certs && ./ironclaw.sh build-image && ./ironclaw.sh start"
 }
 
 cmd_generate_certs() {
@@ -188,13 +192,12 @@ cmd_identyclaw_init() {
       echo "Appended IDENTYCLAW_* defaults to secrets.env"
     fi
   fi
-  echo "Next: ./ironclaw.sh idcp enroll   # if needed"
-  echo "      mint Passport, then ./ironclaw.sh build-image && ./ironclaw.sh start"
-  echo "      ./ironclaw.sh idcp ensure_session && ./ironclaw.sh idcp me"
+  echo "Next: ./ironclaw.sh setup   # enroll → purchase → ensure_session (or idcp-setup to resume)"
   echo "Agent skill: skills/identyclaw (idcp on PATH after start)"
 }
 
-cmd_identyclaw() {
+# Host-side idcp (Passport setup runs before the pod is up).
+_idcp_host() {
   local app_dir cred
   app_dir="$(ironclaw_app_dir)"
   ironclaw_ensure_app_layout
@@ -213,6 +216,143 @@ cmd_identyclaw() {
     cmd_identyclaw_init
   fi
   node "$ROOT/deploy/identyclaw/src/cli.mjs" "$@"
+}
+
+_idcp_account_id() {
+  local dir
+  dir="$(ironclaw_near_credentials_dir)"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$dir" <<'PY'
+import json, pathlib, sys
+d = pathlib.Path(sys.argv[1])
+if not d.is_dir():
+    sys.exit(0)
+files = sorted(d.glob("*.json"))
+if not files:
+    sys.exit(0)
+try:
+    raw = json.loads(files[0].read_text())
+except Exception:
+    sys.exit(0)
+aid = raw.get("account_id") or raw.get("implicit_account_id") or ""
+if aid:
+    print(aid)
+PY
+  fi
+}
+
+# Natural IdentyClaw path: install → enroll → purchase guide → ensure_session → me.
+# Invoked from setup (required) or standalone to resume after mint.
+cmd_idcp_setup() {
+  ironclaw_ensure_app_layout
+  cmd_identyclaw_init
+
+  echo ""
+  echo "Enrolling NEAR implicit account (agent key file — not the paying wallet) ..."
+  local enroll_json account_id
+  enroll_json="$(_idcp_host enroll)"
+  echo "$enroll_json"
+  account_id="$(
+    printf '%s' "$enroll_json" | python3 -c '
+import json,sys
+try:
+    d=json.load(sys.stdin)
+except Exception:
+    d={}
+print(d.get("account_id") or "")
+' 2>/dev/null || true
+  )"
+  if [[ -z "$account_id" ]]; then
+    account_id="$(_idcp_account_id)"
+  fi
+  if [[ -z "$account_id" ]]; then
+    echo "Could not determine implicit_account_id after enroll." >&2
+    exit 1
+  fi
+
+  # Already bound? Skip purchase pause.
+  local tmp_sess tmp_me
+  tmp_sess="$(mktemp)"
+  tmp_me="$(mktemp)"
+  if _idcp_host ensure_session >"$tmp_sess" 2>/dev/null \
+    && _idcp_host me >"$tmp_me" 2>/dev/null; then
+    echo ""
+    echo "Passport already active on home (api.identyclaw.com):"
+    cat "$tmp_me"
+    rm -f "$tmp_sess" "$tmp_me"
+    return 0
+  fi
+  rm -f "$tmp_sess" "$tmp_me"
+
+  echo ""
+  echo "──────────────────────────────────────────────────────────────"
+  echo "Craft your Passport (required)"
+  echo "──────────────────────────────────────────────────────────────"
+  echo "1. Fund a SEPARATE checkout wallet with NEAR (e.g. HOT Wallet)."
+  echo "   Do not paste the agent key file into chat or the portal."
+  echo "2. Open: https://purchase.identyclaw.com"
+  echo "3. Paste this 64-char hex as the NEAR recipient account:"
+  echo ""
+  echo "   ${account_id}"
+  echo ""
+  echo "4. Connect the paying wallet, mint, wait for confirmation."
+  echo "   Docs: https://www.discernible.io/  ·  https://api.identyclaw.com/.well-known/enrollment"
+  echo "──────────────────────────────────────────────────────────────"
+
+  if [[ ! -t 0 ]]; then
+    echo "Non-interactive TTY: after minting, re-run: ./ironclaw.sh idcp-setup" >&2
+    echo "Account id saved under $(ironclaw_app_dir)/secrets/near-credentials/" >&2
+    return 0
+  fi
+
+  # shellcheck disable=SC2162
+  read -r -p "Press Enter after the Passport mint confirms (Ctrl-C to pause; resume with ./ironclaw.sh idcp-setup) ... "
+
+  local attempt=1 max_attempts=8
+  while (( attempt <= max_attempts )); do
+    echo "Activating home session (attempt ${attempt}/${max_attempts}) ..."
+    if _idcp_host ensure_session && _idcp_host me; then
+      echo ""
+      echo "IdentyClaw home session ready."
+      return 0
+    fi
+    if (( attempt == max_attempts )); then
+      break
+    fi
+    echo "Login failed — Passport may still be indexing, or mint not finished."
+    # shellcheck disable=SC2162
+    read -r -p "Press Enter to retry (or Ctrl-C and later: ./ironclaw.sh idcp-setup) ... "
+    (( ++attempt ))
+  done
+
+  echo "Could not activate session yet. After mint confirms:" >&2
+  echo "  ./ironclaw.sh idcp-setup" >&2
+  echo "  # or: ./ironclaw.sh idcp ensure_session && ./ironclaw.sh idcp me" >&2
+  exit 1
+}
+
+# Initial interactive install step after init: IdentyClaw Passport (Hermes-shaped).
+cmd_setup() {
+  local app_dir secrets
+  app_dir="$(ironclaw_app_dir)"
+  secrets="${app_dir}/secrets/secrets.env"
+  if [[ ! -f "$secrets" ]]; then
+    echo "No secrets yet — running init first ..."
+    cmd_init
+  else
+    ironclaw_ensure_app_layout
+  fi
+  echo ""
+  echo "=== IdentyClaw Passport (this fork) ==="
+  cmd_idcp_setup
+  echo ""
+  echo "Setup finished. Next:"
+  echo "  # Confirm LLM key / host in ${secrets}"
+  echo "  ./ironclaw.sh generate-certs && ./ironclaw.sh build-image && ./ironclaw.sh start"
+}
+
+cmd_identyclaw() {
+  _idcp_host "$@"
 }
 
 cmd_start() {
@@ -506,6 +646,7 @@ main() {
   shift || true
   case "$cmd" in
     init) cmd_init "$@" ;;
+    setup) cmd_setup "$@" ;;
     generate-certs) cmd_generate_certs "$@" ;;
     build-image|build) cmd_build_image "$@" ;;
     start) cmd_start "$@" ;;
@@ -519,6 +660,7 @@ main() {
     env) cmd_env "$@" ;;
     exec) cmd_exec "$@" ;;
     idcp-init|identyclaw-init) cmd_identyclaw_init "$@" ;;
+    idcp-setup|identyclaw-setup) cmd_idcp_setup "$@" ;;
     idcp|identyclaw) cmd_identyclaw "$@" ;;
     create-github-fork) cmd_create_github_fork "$@" ;;
     -h|--help|help|"") usage 0 ;;

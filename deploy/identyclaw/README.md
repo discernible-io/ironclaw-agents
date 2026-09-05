@@ -18,16 +18,15 @@ container uid 1000 — that maps to a subordinate host uid and breaks
 ## Ops
 
 ```bash
-./ironclaw.sh idcp-init
-./ironclaw.sh idcp enroll                 # NEAR key → secrets/near-credentials
-# Human: https://purchase.identyclaw.com with account_id
+./ironclaw.sh setup                   # install → enroll → purchase pause → session
+# or resume after mint:
+./ironclaw.sh idcp-setup
 ./ironclaw.sh build-image && ./ironclaw.sh start
-./ironclaw.sh idcp ensure_session
-./ironclaw.sh idcp me
 ./ironclaw.sh idcp create_hola --recipient MUNDO
 ```
 
-`identyclaw` / `identyclaw-init` remain aliases of `idcp` / `idcp-init`.
+`identyclaw` / `identyclaw-init` / `identyclaw-setup` remain aliases of
+`idcp` / `idcp-init` / `idcp-setup`.
 
 ## Agent (same pod)
 

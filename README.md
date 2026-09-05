@@ -136,16 +136,19 @@ cd ~/ironclaw-agents
 chmod +x ironclaw.sh scripts/*.sh
 ./ironclaw.sh init
 # Edit ../ironclaw-agents-app/secrets/secrets.env — LLM key, host/port/BASE_URL
-./ironclaw.sh idcp-init
+./ironclaw.sh setup         # IdentyClaw Passport (enroll → purchase → home session)
 ```
 
 `init` creates the sibling `../ironclaw-agents-app/` layout (secrets, certs, data).
 Runtime state lives in `../ironclaw-agents-app/` (override with `IRONCLAW_APP_DIR`).
 
+`setup` installs the host helper, enrolls a NEAR implicit account, pauses for mint
+at [purchase.identyclaw.com](https://purchase.identyclaw.com), then activates the
+home session. Resume a paused mint with `./ironclaw.sh idcp-setup`.
+
 ### 2. Create a NEAR implicit account
 
-IronClaw uses the host-login path (`idcp`), not OpenClaw plugins. Enrollment
-writes credentials under `../ironclaw-agents-app/secrets/near-credentials/`.
+`./ironclaw.sh setup` (or `idcp-setup`) runs this automatically. Manual path:
 
 ```bash
 ./ironclaw.sh idcp enroll
@@ -154,7 +157,8 @@ writes credentials under `../ironclaw-agents-app/secrets/near-credentials/`.
 That runs [gennearaccount](https://github.com/discernible-io/gennearaccount)
 when available (or a compatible fallback) and prints a **64-character hex**
 `implicit_account_id`. Save that id — it is the Passport recipient. Back up the
-JSON key file (`chmod 0600`); do not commit it.
+JSON key file under `../ironclaw-agents-app/secrets/near-credentials/`
+(`chmod 0600`); do not commit it.
 
 Optional standalone install of `gennearaccount`: see
 [gennearaccount releases](https://github.com/discernible-io/gennearaccount/releases)
@@ -187,6 +191,9 @@ agent's `implicit_account_id` as the Passport recipient.
 
 ### 4. Craft the Passport at purchase.identyclaw.com
 
+`setup` prints the recipient `account_id` and waits for Enter after mint. Manual
+steps if you paused:
+
 1. Open **[https://purchase.identyclaw.com](https://purchase.identyclaw.com)**.
 2. Fill the Passport form (name, creature/role, ContactURI, traits, longevity,
    optional webhook/avatar — see the
@@ -203,8 +210,8 @@ Pricing tiers and fields change over time; trust the portal for current fees.
 
 ### 5. Activate on IronClaw (home session)
 
-This logs into **IdentyClaw home** (`https://api.identyclaw.com`) — identity,
-HOLA, discovery. It does not log you into other APIs.
+`setup` / `idcp-setup` already runs `ensure_session` + `me` after mint. If you
+need to retry after the pod is up:
 
 ```bash
 ./ironclaw.sh build-image && ./ironclaw.sh start
