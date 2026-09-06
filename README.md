@@ -4,6 +4,8 @@
 
 # IronClaw
 
+**Mint:** [Get an IdentyClaw Passport](https://purchase.identyclaw.com) (buy once — no subscription). Then use this fork.
+
 **This is [Discernible](https://www.discernible.io/)'s fork of
 [NEAR AI IronClaw](https://github.com/nearai/ironclaw).**
 Upstream remains the Reborn agent runtime (CLI, WebUI, WASM sandbox, skills,
