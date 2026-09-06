@@ -5,8 +5,9 @@
 # App dir (secrets/state): ../ironclaw-agents-app  (override: IRONCLAW_APP_DIR)
 #
 # Commands:
-#   init                 Create ironclaw-agents-app layout + seed secrets.env from template
-#   setup                Populate -app; last: auto NEAR enroll + Passport mint guide
+#   init                 Create ironclaw-agents-app layout + seed secrets.env if missing (never overwrites)
+#   nuke [--yes]         Delete -app and re-seed from templates (overwrites; confirmation required)
+#   setup                Populate -app (LLM/Telegram if missing, Passport); NEAR enroll; self-signed TLS last
 #   generate-certs       Self-signed TLS PEMs into ironclaw-agents-app/certs/
 #   build-image          Build ironclaw-reborn + nginx (+ identyclaw helper) images
 #   start [--build]      Recreate pod (always rebuild nginx; reuse Reborn unless --build)
@@ -31,7 +32,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$ROOT/scripts/lib-podman.sh"
 
 usage() {
-  sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -44,6 +45,7 @@ require_podman() {
 
 cmd_init() {
   local app_dir secrets template token
+  require_setup_prereqs || exit 1
   app_dir="$(ironclaw_app_dir)"
   secrets="${app_dir}/secrets/secrets.env"
   template="$ROOT/deploy/podman/env.example"
@@ -52,7 +54,7 @@ cmd_init() {
   echo "==> App dir: $app_dir"
 
   if [[ -f "$secrets" ]]; then
-    echo "Secrets already exist: $secrets (leaving unchanged)"
+    echo "Secrets already exist: $secrets (leaving unchanged). To replace the -app dir: $0 nuke"
   else
     cp "$template" "$secrets"
     token="$(openssl rand -hex 32)"
@@ -68,6 +70,41 @@ cmd_init() {
   echo "Next: edit secrets (LLM key, host/port), then:"
   echo "  ./ironclaw.sh setup          # populate -app; auto NEAR account; mint Passport"
   echo "  ./ironclaw.sh generate-certs && ./ironclaw.sh build-image && ./ironclaw.sh start"
+}
+
+# Wipe sibling -app (secrets, Passport keys, Reborn data) and re-run init.
+cmd_nuke() {
+  local yes=0 arg app
+  for arg in "$@"; do
+    case "$arg" in
+      --yes|-y) yes=1 ;;
+      -h|--help)
+        echo "Usage: $0 nuke [--yes]"
+        echo "  Deletes $(ironclaw_app_dir) and re-seeds secrets.env from the template."
+        echo "  init never overwrites; nuke is the overwrite path."
+        return 0
+        ;;
+      *)
+        echo "Usage: $0 nuke [--yes]" >&2
+        exit 1
+        ;;
+    esac
+  done
+  app="$(ironclaw_app_dir)"
+  if ! app_dir_is_nukeable "$app"; then
+    echo "Refusing to nuke ${app} (expected a sibling *-app directory, not HOME or the git checkout)" >&2
+    exit 1
+  fi
+  if [[ -e "$app" ]]; then
+    confirm_app_nuke "$app" "$yes" || { echo "aborted"; exit 1; }
+    if command -v podman >/dev/null 2>&1; then
+      cmd_stop >/dev/null 2>&1 || true
+    fi
+    remove_app_dir "$app" || exit 1
+  else
+    echo "No app dir yet at ${app} — running init"
+  fi
+  cmd_init
 }
 
 cmd_generate_certs() {
@@ -269,7 +306,7 @@ print(d.get("account_id") or "")
   fi
   if [[ -z "$account_id" ]]; then
     echo "Could not determine implicit_account_id after enroll." >&2
-    exit 1
+    return 1
   fi
   echo "Recipient account (automatic): ${account_id}"
 
@@ -326,7 +363,7 @@ print(d.get("account_id") or "")
   echo "Could not activate session yet. After mint confirms:" >&2
   echo "  ./ironclaw.sh idcp-setup" >&2
   echo "  # or: ./ironclaw.sh idcp ensure_session && ./ironclaw.sh idcp me" >&2
-  exit 1
+  return 1
 }
 
 _ironclaw_print_chat_next() {
@@ -342,9 +379,10 @@ _ironclaw_print_chat_next() {
   fi
 }
 
-# Populate -app from secrets.env, then auto-enroll NEAR (last) + mint guide.
+# Populate -app from secrets.env, then auto-enroll NEAR + mint guide. Self-signed TLS last.
 cmd_setup() {
-  local app_dir secrets webhook avatar contact
+  local app_dir secrets webhook avatar contact key token username
+  require_setup_prereqs || exit 1
   app_dir="$(ironclaw_app_dir)"
   secrets="${app_dir}/secrets/secrets.env"
   if [[ ! -f "$secrets" ]]; then
@@ -356,6 +394,46 @@ cmd_setup() {
   ironclaw_load_secrets || true
   ironclaw_ensure_telegram_env_template
   ironclaw_load_secrets || true
+
+  echo ""
+  echo "==> Operator secrets (Enter skips; values already in secrets.env are kept)"
+  if ! ironclaw_llm_key_ready; then
+    key="$(identyclaw_prompt_secret "  OpenRouter API key (sk-or-...; or NearAI key if that is your provider; Enter skips)")"
+    if [[ -n "$key" ]]; then
+      if [[ "$key" == sk-or-* ]]; then
+        _ironclaw_upsert_secrets_var "$secrets" OPENROUTER_API_KEY "$key"
+        export OPENROUTER_API_KEY="$key"
+        echo "    stored OPENROUTER_API_KEY"
+      else
+        _ironclaw_upsert_secrets_var "$secrets" NEARAI_API_KEY "$key"
+        export NEARAI_API_KEY="$key"
+        echo "    stored NEARAI_API_KEY"
+      fi
+    else
+      echo "    (no LLM key — chat needs OPENROUTER_API_KEY or NEARAI_API_KEY in secrets.env)"
+    fi
+  fi
+  token="${TELEGRAM_BOT_TOKEN:-${IRONCLAW_REBORN_TELEGRAM_BOT_TOKEN:-}}"
+  username="${TELEGRAM_BOT_USERNAME:-${IRONCLAW_REBORN_TELEGRAM_BOT_USERNAME:-}}"
+  username="${username#@}"
+  if [[ -z "$token" ]]; then
+    token="$(identyclaw_prompt_secret "  Telegram bot token (Enter skips)")"
+  fi
+  if [[ -n "$token" ]]; then
+    _ironclaw_upsert_secrets_var "$secrets" TELEGRAM_BOT_TOKEN "$token"
+    export TELEGRAM_BOT_TOKEN="$token"
+    echo "    stored TELEGRAM_BOT_TOKEN"
+  else
+    echo "    (no Telegram token — WebUI chat still works; later: edit secrets.env + ./ironclaw.sh telegram-setup)"
+  fi
+  if [[ -n "$token" && -z "$username" ]]; then
+    username="$(identyclaw_prompt_with_default "  Telegram bot username (no @)" "")"
+    username="${username#@}"
+  fi
+  if [[ -n "$username" ]]; then
+    _ironclaw_upsert_secrets_var "$secrets" TELEGRAM_BOT_USERNAME "$username"
+    export TELEGRAM_BOT_USERNAME="$username"
+  fi
 
   echo ""
   echo "==> Passport fields (Enter keeps the value; empty means collect at purchase.identyclaw.com)"
@@ -383,12 +461,15 @@ cmd_setup() {
 
   echo ""
   echo "=== IdentyClaw Passport (this fork) ==="
-  cmd_idcp_setup
+  cmd_idcp_setup || true
+  ironclaw_setup_ensure_self_signed_certs || true
   echo ""
   echo "Setup finished. Next:"
-  echo "  # Confirm LLM key / host in ${secrets}"
-  echo "  ./ironclaw.sh generate-certs && ./ironclaw.sh build-image && ./ironclaw.sh start"
+  echo "  ./ironclaw.sh build-image && ./ironclaw.sh start"
   echo "  ./ironclaw.sh chat            # WebUI console"
+  if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then
+    echo "  ./ironclaw.sh telegram-setup  # after start: apply Telegram bot + webhook"
+  fi
 }
 
 cmd_identyclaw() {
@@ -686,6 +767,7 @@ main() {
   shift || true
   case "$cmd" in
     init) cmd_init "$@" ;;
+    nuke) cmd_nuke "$@" ;;
     setup) cmd_setup "$@" ;;
     generate-certs) cmd_generate_certs "$@" ;;
     build-image|build) cmd_build_image "$@" ;;

@@ -64,6 +64,9 @@ chmod +x ironclaw.sh scripts/*.sh
 ./ironclaw.sh status
 ```
 
+`init` never overwrites an existing `secrets.env`. To replace the whole `-app`
+directory, use `./ironclaw.sh nuke` (type the basename, or `--yes`).
+
 Run **setup and start as separate commands** (do not chain them). Setup
 populates the app dir, **automatically** creates a NEAR implicit account (no
 operator input), pauses for mint at
@@ -86,8 +89,9 @@ WebUI: open the HTTPS URL and authenticate with the bearer token from
 
 | Command | Purpose |
 |---------|---------|
-| `./ironclaw.sh init` | Create `ironclaw-agents-app` + seed `secrets.env` |
-| `./ironclaw.sh setup` | Populate -app; last: auto NEAR enroll + Passport mint guide |
+| `./ironclaw.sh init` | Create `ironclaw-agents-app` + seed `secrets.env` if missing (never overwrites) |
+| `./ironclaw.sh nuke [--yes]` | Delete `-app` and re-seed from templates (overwrites) |
+| `./ironclaw.sh setup` | Populate -app (LLM/Telegram if missing, Passport); NEAR enroll; self-signed TLS last |
 | `./ironclaw.sh generate-certs` | Self-signed `fullchain.pem` / `privkey.pem` |
 | `./ironclaw.sh build-image` | Build Reborn + nginx images |
 | `./ironclaw.sh start` | Recreate pod (always rebuilds nginx; `--build` also rebuilds Reborn) |

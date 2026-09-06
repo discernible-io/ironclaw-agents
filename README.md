@@ -139,16 +139,20 @@ chmod +x ironclaw.sh scripts/*.sh
 ./ironclaw.sh setup         # populate -app; auto NEAR account; Passport mint guide
 ```
 
-`init` creates the sibling `../ironclaw-agents-app/` layout (secrets, certs, data).
+`init` creates the sibling `../ironclaw-agents-app/` layout (secrets, certs, data)
+and **never overwrites** existing files. To wipe and re-seed from templates, use
+`./ironclaw.sh nuke` (confirmation required, or `--yes`).
 Runtime state lives in `../ironclaw-agents-app/` (override with `IRONCLAW_APP_DIR`).
 
-`setup` populates the app dir from `secrets.env`, then **automatically** creates a
+`setup` populates the app dir from `secrets.env`, prompts for a missing LLM key
+and Telegram token, then **automatically** creates a
 NEAR implicit account (no operator input). It prints the recipient hex plus any
 Passport fields already collected (A2A / webhook URL, avatar URL, ContactURI)
 as **[selected]**, and asks you to mint at
-[purchase.identyclaw.com](https://purchase.identyclaw.com). Resume a paused mint
-with `./ironclaw.sh idcp-setup`. After mint, chat via `./ironclaw.sh chat` (WebUI)
-or Telegram once `telegram-setup` has run.
+[purchase.identyclaw.com](https://purchase.identyclaw.com). After mint it creates
+self-signed TLS PEMs under `../ironclaw-agents-app/certs/` if they are missing.
+Resume a paused mint with `./ironclaw.sh idcp-setup`. After start, chat via
+`./ironclaw.sh chat` (WebUI) or Telegram once `telegram-setup` has run.
 
 ### 2. Create a NEAR implicit account
 

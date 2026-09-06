@@ -8,6 +8,62 @@ ironclaw_repo_root() {
   printf '%s' "$here"
 }
 
+_prereq_install_hint() {
+  local pkgs="$1" id="" like=""
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    id="$(. /etc/os-release && printf '%s' "${ID:-}")"
+    like="$(. /etc/os-release && printf '%s' "${ID_LIKE:-}")"
+  fi
+  case " ${id} ${like} " in
+    *" rhel "*|*" fedora "*|*" centos "*|*" almalinux "*|*" rocky "*)
+      echo "Install (AlmaLinux / RHEL / Fedora): sudo dnf install -y ${pkgs}" >&2
+      ;;
+    *" debian "*|*" ubuntu "*)
+      echo "Install (Debian / Ubuntu): sudo apt-get install -y ${pkgs}" >&2
+      ;;
+    *)
+      echo "Install: ${pkgs}" >&2
+      ;;
+  esac
+}
+
+require_setup_prereqs() {
+  local missing=() name ver major
+  echo "==> Checking prerequisites"
+  for name in podman python3 openssl node npm; do
+    if command -v "$name" >/dev/null 2>&1; then
+      case "$name" in
+        podman) ver="$(podman --version 2>/dev/null | head -1)" ;;
+        python3) ver="$(python3 --version 2>/dev/null)" ;;
+        openssl) ver="$(openssl version 2>/dev/null)" ;;
+        node) ver="$(node --version 2>/dev/null)" ;;
+        npm) ver="$(npm --version 2>/dev/null)" ;;
+        *) ver="" ;;
+      esac
+      echo "    ok  ${name}${ver:+  (${ver})}"
+    else
+      missing+=("$name")
+      echo "    missing  ${name}"
+    fi
+  done
+  if command -v node >/dev/null 2>&1; then
+    major="$(node --version 2>/dev/null | sed 's/^v//' | cut -d. -f1)"
+    if [[ "${major:-0}" -lt 22 ]]; then
+      echo "    warn  Node.js 22+ recommended (found $(node --version 2>/dev/null))" >&2
+    fi
+  fi
+  if ! command -v loginctl >/dev/null 2>&1; then
+    echo "    skip  loginctl (optional; needed only for enable-boot linger)"
+  fi
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "Missing required tools: ${missing[*]}" >&2
+    _prereq_install_hint "podman python3 openssl nodejs npm"
+    return 1
+  fi
+  return 0
+}
+
 ironclaw_app_dir() {
   local root sibling
   if [[ -n "${IRONCLAW_APP_DIR:-}" ]]; then
@@ -90,6 +146,52 @@ ironclaw_ensure_app_layout() {
   chmod 700 "${app_dir}/data/identyclaw" 2>/dev/null || true
   chmod 700 "${app_dir}/data/identyclaw/sessions" 2>/dev/null || true
   chmod 0775 "${app_dir}/logs/nginx" 2>/dev/null || true
+}
+
+app_dir_is_nukeable() {
+  local app="${1:?}"
+  local abs repo
+  abs="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$app")"
+  repo="$(ironclaw_repo_root)"
+  [[ -n "$abs" && "$abs" != "/" ]] || return 1
+  [[ "$abs" != "$HOME" ]] || return 1
+  [[ "$(basename "$abs")" == *-app ]] || return 1
+  [[ "$abs" != "$repo" ]] || return 1
+  [[ "$abs" != "$(cd "$repo/.." && pwd)" ]] || return 1
+  return 0
+}
+
+confirm_app_nuke() {
+  local app="${1:?}" yes="${2:-0}" base reply
+  base="$(basename "$app")"
+  echo "This DELETES ${app}"
+  echo "  secrets.env, Passport keys, Reborn data, TLS — all gone."
+  echo "  init never overwrites; nuke is the overwrite path."
+  if [[ "$yes" == "1" ]]; then
+    return 0
+  fi
+  if [[ ! -t 0 ]]; then
+    echo "Non-interactive TTY: pass --yes" >&2
+    return 1
+  fi
+  # shellcheck disable=SC2162
+  read -r -p "Type ${base} to confirm: " reply
+  [[ "$reply" == "$base" ]]
+}
+
+remove_app_dir() {
+  local app="${1:?}"
+  [[ -e "$app" ]] || return 0
+  echo "==> Removing ${app}"
+  if rm -rf "$app" 2>/dev/null; then
+    return 0
+  fi
+  if command -v podman >/dev/null 2>&1; then
+    podman unshare rm -rf "$app"
+    return 0
+  fi
+  echo "Could not remove ${app} (permission). Stop the pod and retry." >&2
+  return 1
 }
 
 # Himalaya/Migadu mounts for the Reborn container (uid 1000 / ironclaw).
@@ -334,6 +436,49 @@ identyclaw_prompt_with_default() {
     read -r -p "${prompt}: " var || true
   fi
   printf '%s' "${var:-$default}"
+}
+
+identyclaw_prompt_secret() {
+  local prompt="$1" var=""
+  if [[ ! -t 0 ]] || [[ "${SKIP_SETUP_PROMPTS:-0}" == "1" ]]; then
+    return 0
+  fi
+  read -r -s -p "${prompt}: " var || true
+  echo >&2
+  printf '%s' "$var"
+}
+
+ironclaw_llm_key_ready() {
+  local or="${OPENROUTER_API_KEY:-}" na="${NEARAI_API_KEY:-}"
+  [[ -n "$or" && "$or" != CHANGE_ME* ]] && return 0
+  [[ -n "$na" && "$na" != CHANGE_ME* ]] && return 0
+  return 1
+}
+
+# Last step of setup: create self-signed PEMs if missing and print where they live.
+ironclaw_setup_ensure_self_signed_certs() {
+  local cert_dir domain
+  cert_dir="$(ironclaw_app_dir)/certs"
+  mkdir -p "$cert_dir"
+  echo ""
+  echo "==> Self-signed TLS certificates"
+  if [[ -s "${cert_dir}/fullchain.pem" && -s "${cert_dir}/privkey.pem" ]]; then
+    echo "Already present (not overwritten):"
+    echo "  ${cert_dir}/fullchain.pem"
+    echo "  ${cert_dir}/privkey.pem"
+    return 0
+  fi
+  domain="$(ironclaw_tier_domain 2>/dev/null || echo ironclaw.dihola.io)"
+  if TLS_CN="${TLS_CN:-$domain}" \
+    bash "$(ironclaw_repo_root)/scripts/generate-self-signed-certs.sh" "$cert_dir" \
+    && [[ -s "${cert_dir}/fullchain.pem" && -s "${cert_dir}/privkey.pem" ]]; then
+    echo "Created self-signed certificate (bootstrap TLS — replace with CA-issued PEMs when ready):"
+    echo "  ${cert_dir}/fullchain.pem"
+    echo "  ${cert_dir}/privkey.pem"
+    return 0
+  fi
+  echo "Could not create self-signed certs — later: ./ironclaw.sh generate-certs" >&2
+  return 1
 }
 
 ironclaw_passport_webhook_url() {
