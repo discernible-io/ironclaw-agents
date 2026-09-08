@@ -136,8 +136,9 @@ impl ResourceBudgetPolicy {
     /// Occupancy insurance for interactive turns. A sick model path (retry
     /// storms, hung streams that keep heartbeating) must not hold the
     /// one-active-run lock indefinitely — later channel and WebUI messages
-    /// cannot start a new turn until the occupying run ends.
-    pub const INTERACTIVE_MAX_WALL_CLOCK_SECONDS: u32 = 10 * 60;
+    /// cannot start a new turn until the occupying run ends. Same 30-minute
+    /// ceiling as the interactive resource budget.
+    pub const INTERACTIVE_MAX_WALL_CLOCK_SECONDS: u32 = INTERACTIVE_WALL_CLOCK_SECONDS;
 
     /// The interactive-coding tier resource budget, shared by the interactive
     /// profile and its legacy-persisted reconstruction.
@@ -152,18 +153,27 @@ impl ResourceBudgetPolicy {
     /// width). The original 32/64 values predate enforcement — they were
     /// written while the caps were inert and never bound a real run.
     ///
-    /// The wall-clock cap is occupancy insurance, not a coding-session
-    /// budget: healthy tool-heavy turns finish well under it; a provider
-    /// that keeps retrying must fail closed so the thread unlocks.
+    /// `max_wall_clock_seconds` defaults to `INTERACTIVE_WALL_CLOCK_SECONDS`
+    /// (30 minutes): generous for legitimate work, short enough to guarantee
+    /// eventual termination — incident e3513a4e ran unbounded 70 minutes with
+    /// no ceiling. Hard stop, no recovery turn (`BudgetStage::hard_budget_exit`),
+    /// unlike the loop's windowed no-progress check. Declared per-run
+    /// `TurnLimits.max_wall_clock_seconds` may only narrow this, never widen
+    /// it (`DeclaredLimitsNarrowingResolver`, `coordinator.rs:454-489`) — no
+    /// path to raise it per-run today.
     pub(crate) fn interactive() -> Self {
         Self {
             tier: ResourceBudgetTier::from_trusted_static("interactive_standard"),
             max_model_calls: 2_048,
             max_capability_invocations: 4_096,
-            max_wall_clock_seconds: Some(Self::INTERACTIVE_MAX_WALL_CLOCK_SECONDS),
+            max_wall_clock_seconds: Some(INTERACTIVE_WALL_CLOCK_SECONDS),
         }
     }
 }
+
+/// Default wall-clock ceiling for the interactive tier, in seconds (30
+/// minutes). See `ResourceBudgetPolicy::interactive`'s doc for rationale.
+pub(crate) const INTERACTIVE_WALL_CLOCK_SECONDS: u32 = 1_800;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeProfileConstraints {

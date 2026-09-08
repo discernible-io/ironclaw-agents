@@ -154,13 +154,13 @@ use ironclaw_host_api::{
 };
 use ironclaw_host_runtime::memory_provider::MemoryServiceResolver;
 use ironclaw_host_runtime::{
-    CapabilitySurfaceVersion, FirstPartyCapabilityRegistry, HostProcessPort, HostRuntimeServices,
-    PostEditCheckConfig, ProductAuthProviderRuntimePorts, RuntimeCredentialAccessSecret,
+    CapabilitySurfaceVersion, HostProcessPort, HostRuntimeServices, PostEditCheckConfig,
+    ProductAuthProviderRuntimePorts, RuntimeCredentialAccessSecret,
     RuntimeCredentialAccountRequest, RuntimeCredentialAccountResolver, TriggerCreateHook,
-    builtin_first_party_package,
+    builtin_first_party_package, projected_trigger_capability_call_facts_source,
 };
 use ironclaw_host_runtime::{
-    builtin_first_party_handlers_with_trigger_services_for_process_backend,
+    builtin_first_party_handlers_with_trigger_services_and_facts_for_process_backend,
     builtin_first_party_package_for_process_backend,
 };
 use ironclaw_identity::projects::ProjectRepository;
@@ -257,6 +257,8 @@ pub(crate) type ComposedToolPermissionOverrideStore =
     ToolPermissionOverrideStore<CompositeRootFilesystem>;
 
 pub(crate) type ComposedAutoApproveSettingStore = AutoApproveSettingStore<CompositeRootFilesystem>;
+pub(crate) type ComposedNotificationInbox =
+    Arc<dyn ironclaw_notifications::NotificationInboxStorePort>;
 
 pub(crate) struct RebornRuntimeStores {
     pub(crate) host_runtime: Arc<dyn ironclaw_host_runtime::HostRuntime>,
@@ -287,7 +289,7 @@ pub(crate) struct RebornRuntimeStores {
         Arc<crate::outbound::MutableOutboundDeliveryTargetRegistry>,
     pub(crate) skill_auto_activate_learned: Arc<AtomicBool>,
     pub(crate) outbound_state: Arc<dyn OutboundStateStorePort>,
-    pub(crate) notification_inbox: Arc<dyn ironclaw_notifications::NotificationInboxStorePort>,
+    pub(crate) notification_inbox: ComposedNotificationInbox,
     pub(crate) reply_attachment_intents: Arc<dyn ReplyAttachmentIntentPort>,
     pub(crate) delivered_gate_routes: Arc<dyn DeliveredGateRouteStore>,
     pub(crate) triggered_run_delivery: Arc<dyn TriggeredRunDeliveryStore>,
@@ -341,6 +343,13 @@ pub(crate) struct RebornRuntimeStores {
     /// resolved from its bundle at the same point `memory_lifecycle` is.
     /// `None` when unbound or the provider declares no `guidance_doc`.
     pub(crate) memory_guidance: Option<String>,
+    /// Prompt text for each scheduled pass op the bound memory provider
+    /// declares (#7664), by trigger, resolved from its bundle at the same
+    /// point `memory_lifecycle` is. Empty when it schedules nothing.
+    pub(crate) memory_scheduled_pass_prompts: Vec<(
+        ironclaw_extension_contracts::memory::MemoryScheduledTrigger,
+        String,
+    )>,
     /// The deployment's single workspace scoping decision, read by every
     /// workspace write lane (grants, approval leases, attachment handles).
     pub(crate) workspace_mounts: crate::runtime_mounts::WorkspaceMountPolicy,
@@ -392,6 +401,19 @@ pub(crate) struct RebornRuntimeStores {
     /// are consumed by `build_reborn_runtime` when the channel host assembly
     /// starts.
     pub(crate) channel_extension_bindings: Vec<crate::input::ChannelExtensionBinding>,
+    /// The binary-bound product projection reply sink, if a channel binding
+    /// carries one; `build_reborn_runtime` binds the live projection publisher
+    /// into it once the projection graph exists.
+    pub(crate) projection_reply_sink:
+        Option<std::sync::Arc<ironclaw_assistant::projection::reply_sink::ProjectionReplySink>>,
+    /// The channel whose `[channel.reply]` the host serves (the
+    /// authenticated-session channel); reply publication registers it as a
+    /// target for every run.
+    pub(crate) session_reply_channel: Option<ironclaw_host_api::ids::ExtensionId>,
+    /// Whether the build's channel-host start also starts reply publication
+    /// (`RebornHostBindings::start_reply_publication_at_build`; always true
+    /// outside deferring test harnesses).
+    pub(crate) start_reply_publication_at_build: bool,
     /// Manifest-declared deployment channel surfaces, independent of user
     /// installation/activation state.
     pub(crate) deployment_channels: Arc<ironclaw_extension_host::DeploymentChannelRegistry>,
@@ -1214,25 +1236,6 @@ fn production_builtin_extension_registry(
         })?;
     insert_bound_memory_package(&mut registry, memory_package)?;
     Ok(registry)
-}
-
-fn production_first_party_registry_with_trigger_create_hook(
-    trigger_repository: Arc<dyn TriggerRepository>,
-    trigger_create_hook: Arc<dyn TriggerCreateHook>,
-    active_run_lookup: Arc<dyn TriggerActiveRunLookup>,
-    manual_fire_runner: Arc<dyn ironclaw_triggers::TriggerManualFireRunner>,
-    process_backend: ProcessBackendKind,
-) -> Result<FirstPartyCapabilityRegistry, RebornBuildError> {
-    builtin_first_party_handlers_with_trigger_services_for_process_backend(
-        trigger_repository,
-        trigger_create_hook,
-        active_run_lookup,
-        manual_fire_runner,
-        process_backend,
-    )
-    .map_err(|error| RebornBuildError::InvalidConfig {
-        reason: format!("built-in first-party handlers are invalid: {error}"),
-    })
 }
 
 fn manifest_channel_account_setup_descriptors(

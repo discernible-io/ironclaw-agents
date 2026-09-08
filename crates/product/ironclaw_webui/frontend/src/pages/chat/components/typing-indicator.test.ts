@@ -1,4 +1,3 @@
-// @ts-nocheck
 import assert from "node:assert/strict";
 import { test } from "vitest";
 import vm from "node:vm";
@@ -19,7 +18,7 @@ function renderTypingIndicator(props = {}, { nowMs = 1_700_000_000_000 } = {}) {
   const components = {
     NearProcessIndicator() {},
   };
-  const context = {
+  const context: vm.Context = {
     ...components,
     Date: { now: () => nowMs },
     React: {

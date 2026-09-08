@@ -72,7 +72,11 @@ struct FrozenPathCount {
 /// test-support-only, then #7171 did the same for the skill mount view once
 /// `skill_mounts_for` began deriving it per gate.
 const WS0_PRODUCTION_STRUCT_DEBT_PATH_BASELINE: usize = 79;
-const WS0_PRODUCTION_STRUCT_DEBT_MEMBER_BASELINE: usize = 270;
+// 269 -> 268 (2026-08-31/09-01): the delivery-coordinator handle on
+// `RebornRuntime` became an ungated production field (shutdown reads it);
+// its accessor stays test-support (integration harnesses wiring their own
+// run-delivery observer are its only callers).
+const WS0_PRODUCTION_STRUCT_DEBT_MEMBER_BASELINE: usize = 268;
 
 const FROZEN_PATH_COUNTS: &[FrozenPathCount] = &[
     FrozenPathCount {
@@ -112,7 +116,7 @@ const FROZEN_PATH_COUNTS: &[FrozenPathCount] = &[
         count: 1,
     },
     // Unwired sandbox credential-firewall primitives (W5/W8). Retire these
-    // four entries when the egress proxy consumer (W6) lands on main and the
+    // three entries when the remaining consumers land and the
     // `#[allow(dead_code)]` attributes come off — the `removed` assertion
     // below only shrinks this baseline if the attributes are actually
     // deleted, not merely left in place.
@@ -120,7 +124,7 @@ const FROZEN_PATH_COUNTS: &[FrozenPathCount] = &[
         category: "dead-code",
         item_kind: "method",
         path: "crates/ironclaw_sandbox/src/sandbox_process/ca.rs",
-        count: 4,
+        count: 3,
     },
     // Same W6 retirement trigger as the `ca.rs` entry above.
     FrozenPathCount {
@@ -175,7 +179,9 @@ const FROZEN_PATH_COUNTS: &[FrozenPathCount] = &[
         category: "test-support",
         item_kind: "field",
         path: "crates/ironclaw_composition/src/runtime.rs",
-        count: 10,
+        // 10 -> 9 (2026-08-31): the delivery-coordinator handle became an
+        // ungated production field when the reply publication folded onto it.
+        count: 9,
     },
     FrozenPathCount {
         category: "test-support",
@@ -453,6 +459,11 @@ const FROZEN_PATH_COUNTS: &[FrozenPathCount] = &[
         category: "test-support",
         item_kind: "method",
         path: "crates/ironclaw_composition/src/runtime.rs",
+        // 43 -> 44 (2026-09-01): the delivery-coordinator accessor is
+        // test-support again — production wiring takes the coordinator from
+        // the factory; only integration harnesses that wire their own
+        // run-delivery observer read it back. The field stays ungated
+        // (shutdown uses it).
         count: 44,
     },
     FrozenPathCount {

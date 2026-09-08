@@ -1,8 +1,42 @@
-// @ts-nocheck
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "vitest";
 import vm from "node:vm";
+
+import type { DynamicTestOptions } from "../../test-support/dynamic-test-types";
+
+const sharedPanelTabs = [
+  ["./components/registry-tab.tsx", 2],
+  ["./components/channels-tab.tsx", 2],
+  ["./components/tools-tab.tsx", 3],
+] as const;
+
+test("standard extension tab containers use the shared Panel component", () => {
+  for (const [relativePath, expectedPanelCount] of sharedPanelTabs) {
+    const source = readFileSync(new URL(relativePath, import.meta.url), "utf8");
+
+    assert.doesNotMatch(
+      source,
+      /\bv2-panel\b/,
+      `${relativePath} must not use the legacy panel styling shim`,
+    );
+    assert.match(
+      source,
+      /import \{ Panel \} from "\.\.\/\.\.\/\.\.\/design-system\/primitives";/,
+      `${relativePath} must import the shared Panel component`,
+    );
+    assert.match(
+      source,
+      /<Panel(?:\s|>)/,
+      `${relativePath} must render the shared Panel component`,
+    );
+    assert.equal(
+      source.match(/<Panel(?:\s|>)/g)?.length,
+      expectedPanelCount,
+      `${relativePath} must use Panel for every standard container`,
+    );
+  }
+});
 
 function extensionsPageSourceForTest() {
   const source = readFileSync(new URL("./extensions-page.tsx", import.meta.url), "utf8");
@@ -41,7 +75,11 @@ function componentProps(root, component) {
   return props;
 }
 
-function renderExtensionsPage(tab, extensionState = {}, { isAdmin = false } = {}) {
+function renderExtensionsPage(
+  tab,
+  extensionState: DynamicTestOptions = {},
+  { isAdmin = false }: DynamicTestOptions = {},
+): DynamicTestOptions {
   const hookValues = [];
   let hookCursor = 0;
   const removeCalls = [];
@@ -63,7 +101,7 @@ function renderExtensionsPage(tab, extensionState = {}, { isAdmin = false } = {}
     "ext.catalog.retry": "Retry",
     "ext.catalog.retrying": "Retrying…",
   };
-  const context = {
+  const context: vm.Context = {
     ChannelsTab() {},
     ConfirmDialog,
     ConfigureModal,
@@ -88,6 +126,9 @@ function renderExtensionsPage(tab, extensionState = {}, { isAdmin = false } = {}
     PageStack,
     React: {
       useCallback: (fn) => fn,
+      // Identity-stable memoization is not what this harness measures; it
+      // renders once per assertion, so evaluating the factory is equivalent.
+      useMemo: (factory) => factory(),
       useEffect: (effect) => effect(),
       useRef: (initial) => {
         const index = hookCursor;
@@ -114,6 +155,18 @@ function renderExtensionsPage(tab, extensionState = {}, { isAdmin = false } = {}
     html(strings, ...values) {
       return { strings: Array.from(strings), values };
     },
+    // The setup-link landing (`?configure=&setup=`) is covered end to end in
+    // `hooks/useSetupLanding.test.tsx`; this harness only needs the page to
+    // render when no link was followed.
+    useExtensionSetupLanding: () => ({ setupPath: null, clearSetupPath() {} }),
+    // The real mapping, not a stub: the page hands these to the landing hook
+    // and to `ConfigureModal`, and passing raw API items is exactly the wiring
+    // bug that let the deep link open nothing on a live deployment.
+    configureRequest: (extension) => ({
+      ...extension,
+      packageRef: extension.package_ref,
+      displayName: extension.display_name || extension.package_ref?.id || "",
+    }),
     useExtensions: () => ({
       status: {},
       channels: [],

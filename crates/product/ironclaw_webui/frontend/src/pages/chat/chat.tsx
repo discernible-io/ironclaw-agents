@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React from "react";
 import { useLocation } from "react-router";
 import { useT } from "../../lib/i18n";
@@ -78,6 +77,12 @@ function getAuthDeviceLinkCard() {
  * is intentionally not instrumented; revisit this constant (not add
  * telemetry) if slow links make the re-flicker noticeable. */
 const THREAD_STATE_CLEAR_GRACE_MS = 1500;
+
+type ChatComposerOptions = {
+  images?: unknown[];
+  attachments?: unknown[];
+  displayContent?: string;
+};
 
 function pendingOnboardingLabel(onboarding) {
   // Single source of channel display names (lib/channel-connection-events.ts) so
@@ -289,7 +294,10 @@ export function Chat({
       !activeThreadHasOnboarding
   );
   const handleSend = React.useCallback(
-    async (content, { images = [], attachments = [], displayContent } = {}) => {
+    async (
+      content: string,
+      { images = [], attachments = [], displayContent }: ChatComposerOptions = {},
+    ) => {
       if (activeThreadHasGate) {
         throw new Error(approvalSubmitWarning);
       }
@@ -484,7 +492,6 @@ export function Chat({
         {showLanding &&
         (
           <EmptyState
-            onSuggestion={handleSuggestion}
             onSend={handleSend}
             onOpenThread={handleOpenSuggestionThread}
             commands={activeThreadId ? chatCommands : []}

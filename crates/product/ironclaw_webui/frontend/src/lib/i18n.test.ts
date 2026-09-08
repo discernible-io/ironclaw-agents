@@ -1,4 +1,3 @@
-// @ts-nocheck
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "vitest";
@@ -30,7 +29,7 @@ function loadI18n() {
   const stateSetters = [];
   let stateIndex = 0;
 
-  const context = {
+  const context: vm.Context = {
     __dynamicImport: () => {
       throw new Error("locale loader was not overridden in this test");
     },
@@ -188,6 +187,58 @@ test("non-English locale packs localize exposed workflow copy", () => {
   }
 });
 
+test("non-English locale packs localize exposed route copy", () => {
+  const english = loadLocalePack("en");
+  const keys = [
+    "common.back",
+    "common.continue",
+    "authGate.pillEnterToken",
+    ...Object.keys(english).filter((key) => key.startsWith("chat.oobe.")),
+  ];
+
+  for (const key of keys) {
+    assert.equal(typeof english[key], "string", `en must define ${key}`);
+  }
+  for (const locale of LOCALES.filter((candidate) => candidate !== "en")) {
+    const pack = loadLocalePack(locale);
+    for (const key of keys) {
+      assert.equal(typeof pack[key], "string", `${locale} must define ${key}`);
+      assert.notEqual(pack[key], english[key], `${locale} must localize ${key}`);
+    }
+  }
+});
+
+test("locale packs include localized product inspector activity summaries", () => {
+  const english = loadLocalePack("en");
+  const keys = [
+    "inspector.activity.summary.toolStarted",
+    "inspector.activity.summary.toolCompleted",
+    "inspector.activity.summary.toolFailed",
+    "inspector.activity.summary.turnQueued",
+    "inspector.activity.summary.turnRunning",
+    "inspector.activity.summary.finalResponseCompleted",
+    "inspector.activity.summary.runCancelled",
+    "inspector.activity.summary.runTimedOut",
+    "inspector.activity.summary.runRequiresRecovery",
+    "inspector.activity.summary.runFailed",
+    "inspector.activity.summary.runBlockedByGate",
+    "inspector.activity.summary.turnAccepted",
+    "inspector.activity.summary.progressReceived",
+    "inspector.activity.summary.runBlockedForAuthorization",
+  ];
+
+  for (const key of keys) {
+    assert.equal(typeof english[key], "string", `en must define ${key}`);
+  }
+  for (const locale of LOCALES.filter((candidate) => candidate !== "en")) {
+    const pack = loadLocalePack(locale);
+    for (const key of keys) {
+      assert.equal(typeof pack[key], "string", `${locale} must define ${key}`);
+      assert.notEqual(pack[key], english[key], `${locale} must localize ${key}`);
+    }
+  }
+});
+
 test("non-English locale packs localize model-selection settings", () => {
   const english = loadLocalePack("en");
   const keys = [
@@ -215,6 +266,21 @@ test("non-English locale packs localize model-selection settings", () => {
     const pack = loadLocalePack(locale);
     for (const key of keys) {
       assert.notEqual(pack[key], english[key], `${locale} must localize ${key}`);
+    }
+  }
+});
+
+test("locale packs include model capability labels", () => {
+  const keys = [
+    "llm.capabilityText",
+    "llm.capabilityImageInput",
+    "llm.capabilityImageOutput",
+  ];
+
+  for (const locale of LOCALES) {
+    const pack = loadLocalePack(locale);
+    for (const key of keys) {
+      assert.equal(typeof pack[key], "string", `${locale} must define ${key}`);
     }
   }
 });

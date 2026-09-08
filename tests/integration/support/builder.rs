@@ -580,7 +580,7 @@ impl RebornIntegrationHarnessBuilder {
     ///
     /// Implies [`with_builtin_http_tools`](Self::with_builtin_http_tools).
     pub fn with_live_shell(mut self) -> Self {
-        self.capability = RebornCapabilityBackend::BuiltinHttpTools;
+        self.capability = RebornCapabilityBackend::BuiltinHttpToolsDurableIo;
         self.shell_mode = ShellMode::Live;
         self
     }
@@ -624,7 +624,7 @@ impl RebornIntegrationHarnessBuilder {
     /// `GithubHarnessAuthorizer`, which allows every dispatch with an
     /// `InjectCredentialAccountOnce` obligation. A scripted `github.*` tool call
     /// then executes the real WASM module, whose outbound HTTP request has a
-    /// synthetic `Authorization: Bearer <token>` credential injected by the host
+    /// synthetic `Authorization: token <token>` credential injected by the host
     /// egress pipeline before it reaches the recording network egress. Proves
     /// credential injection reaches the wire (T0-SECRET-INJECT).
     ///
@@ -1173,9 +1173,81 @@ impl RebornIntegrationHarness {
         Ok(Arc::new(self.thread_harness.service_instance()?))
     }
 
+    /// Persist a compaction summary over this harness thread.
+    ///
+    /// Tests use this to exercise prompt projection independently from the
+    /// threshold and model-inference paths that create summaries in production.
+    pub(crate) async fn create_compaction_summary_for_test(
+        &self,
+        start_sequence: u64,
+        end_sequence: u64,
+        content: &str,
+        context_mode: Option<ironclaw_threads::SummaryContextMode>,
+    ) -> HarnessResult<ironclaw_threads::SummaryArtifact> {
+        let scope = thread_scope_from_binding(&self.binding)?;
+        Ok(self
+            .thread_service_for_test()?
+            .create_summary_artifact(ironclaw_threads::CreateSummaryArtifactRequest {
+                scope,
+                thread_id: self.binding.thread_id.clone(),
+                start_sequence,
+                end_sequence,
+                summary_kind: ironclaw_threads::SummaryKind::Compaction,
+                content: ironclaw_threads::MessageContent::text(content),
+                model_context_policy: Some(
+                    ironclaw_threads::SummaryModelContextPolicy::ReplaceRangeWhenSelected,
+                ),
+                context_mode,
+            })
+            .await?)
+    }
+
     /// The group-shared turn coordinator every thread's runs execute on.
     pub(crate) fn turn_coordinator_for_test(&self) -> Arc<dyn TurnCoordinator> {
         Arc::clone(&self.coordinator)
+    }
+
+    /// The reply projection the group's planned runtime composes every run's
+    /// document into (see `GroupSharedStorage::reply_projection`).
+    pub(crate) fn reply_projection_for_test(
+        &self,
+    ) -> Arc<ironclaw_assistant::projection::reply::ReplyProjection> {
+        Arc::clone(&self._shared.reply_projection)
+    }
+
+    /// Start the composed coordinator's reply publication over the group's
+    /// REAL kernel handles (the turn coordinator and thread service the
+    /// caller's runs actually live in). A test that wires its own
+    /// `RunDeliveryObserver` without starting the production channel-host
+    /// assembly calls this so the one publication owner reads the group's
+    /// runs; when the assembly already started publication (with the same
+    /// group handles), this is a no-op.
+    pub(crate) fn start_reply_publication_for_test(
+        &self,
+        services: &ironclaw_composition::RebornRuntime,
+    ) {
+        use ironclaw_assistant::{ReplyPublicationSettings, ReplyPublicationWiring};
+        let coordinator = services
+            .delivery_coordinator()
+            .expect("composition built the delivery coordinator");
+        let thread_service = self
+            .thread_service_for_test()
+            .expect("group thread service");
+        let started = coordinator.start_reply_publication(ReplyPublicationWiring {
+            projection: self.reply_projection_for_test(),
+            turn_coordinator: self.turn_coordinator_for_test(),
+            thread_service,
+            approval_context: None,
+            blocked_auth_prompts: None,
+            project_filesystem: Arc::new(ironclaw_assistant::NoProjectFilesystem),
+            session_channel: None,
+            settings: ReplyPublicationSettings::default(),
+        });
+        if !started {
+            tracing::debug!(
+                "reply publication was already started on the composed coordinator; keeping it"
+            );
+        }
     }
 
     /// The group-shared turn-state store paired with
@@ -2050,6 +2122,26 @@ impl RebornIntegrationHarness {
         .await
     }
 
+    /// Deny a blocked client-tool gate without submitting an output. The
+    /// typed precondition drives the same coordinator resume path as the
+    /// product external-tool surface and prevents parked-call redispatch.
+    pub async fn deny_external_tool_gate(
+        &self,
+        run_id: TurnRunId,
+        gate_ref: &TurnGateRef,
+    ) -> HarnessResult<()> {
+        if !gate_ref.as_str().starts_with("gate:external_tool-") {
+            return Err(format!("expected an external-tool gate ref, got {gate_ref:?}").into());
+        }
+        self.resume_run(
+            run_id,
+            gate_ref.clone(),
+            Some(GateResumeDisposition::Denied),
+            ResumeTurnPrecondition::BlockedExternalToolGate,
+        )
+        .await
+    }
+
     /// Resolve a blocked AUTH gate the "user submitted credentials" way
     /// (C-JOURNEY convergence seam): seed a real GitHub credential account
     /// (`seed_github_credential_account`) so the parked capability's next
@@ -2230,23 +2322,31 @@ impl RebornIntegrationHarness {
         Ok(())
     }
 
-    /// Drive one device link end to end through the **production** step
-    /// machine — the same `DeviceLinkFlowDriver` the WebUI routes dispatch to,
-    /// resolved off the composed product-auth bundle — and return the
-    /// credential account it minted.
-    ///
-    /// What is real here is everything except the vendor: composition's
-    /// driver, the auth-side revision compare-and-swap and TTLs, the extension
-    /// host's snapshot resolution and rate limits, provisional custody, the
-    /// completion mint with its ownership pin, and the durable blob write. The
-    /// vendor half is the harness's scripted adapter, because the real one
-    /// speaks MTProto over a socket with no injectable seam.
-    pub async fn link_device_through_product_auth(
+    /// Start one device link through the production driver and return the
+    /// first durable record it minted — the frame a card renders straight
+    /// after `start`. A vendor that fails `begin` lands here as a terminal
+    /// `Failed` record, not as a call error.
+    pub async fn start_device_link_through_product_auth(
         &self,
         provider: &str,
         extension_id: &str,
-        password: &str,
-    ) -> HarnessResult<ironclaw_auth::CredentialAccount> {
+    ) -> HarnessResult<ironclaw_auth::AuthFlowRecord> {
+        let (_, _, _, record) = self
+            .begin_device_link_through_product_auth(provider, extension_id)
+            .await?;
+        Ok(record)
+    }
+
+    async fn begin_device_link_through_product_auth(
+        &self,
+        provider: &str,
+        extension_id: &str,
+    ) -> HarnessResult<(
+        Arc<ironclaw_auth::RebornProductAuthServices>,
+        Arc<ironclaw_auth::DeviceLinkFlowDriver>,
+        ironclaw_auth::AuthProductScope,
+        ironclaw_auth::AuthFlowRecord,
+    )> {
         let harness = match &self._shared.capability {
             GroupCapability::HostRuntime(arc) => arc,
             _ => return Err("no host-runtime capability backend to drive a device link".into()),
@@ -2282,6 +2382,29 @@ impl RebornIntegrationHarness {
             })
             .await
             .map_err(|error| format!("device-link start failed: {error:?}"))?;
+        Ok((product_auth, driver, scope, record))
+    }
+
+    /// Drive one device link end to end through the **production** step
+    /// machine — the same `DeviceLinkFlowDriver` the WebUI routes dispatch to,
+    /// resolved off the composed product-auth bundle — and return the
+    /// credential account it minted.
+    ///
+    /// What is real here is everything except the vendor: composition's
+    /// driver, the auth-side revision compare-and-swap and TTLs, the extension
+    /// host's snapshot resolution and rate limits, provisional custody, the
+    /// completion mint with its ownership pin, and the durable blob write. The
+    /// vendor half is the harness's scripted adapter, because the real one
+    /// speaks MTProto over a socket with no injectable seam.
+    pub async fn link_device_through_product_auth(
+        &self,
+        provider: &str,
+        extension_id: &str,
+        password: &str,
+    ) -> HarnessResult<ironclaw_auth::CredentialAccount> {
+        let (product_auth, driver, scope, record) = self
+            .begin_device_link_through_product_auth(provider, extension_id)
+            .await?;
         let flow_id = record.id;
 
         // Poll until the vendor asks for a value, waiting out the back-off the

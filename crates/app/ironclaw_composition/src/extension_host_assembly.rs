@@ -50,7 +50,12 @@ const CONNECT_LINK_BASE_URL_ENV: &str = "IRONCLAW_REBORN_WEBUI_BASE_URL";
 /// consumer *fails startup* on a blank value; this consumer has a working
 /// link-free fallback, so it ships dark instead — the two agree on what the
 /// variable means, and differ only in what an unusable value costs.
-fn connect_link_base_url_from_env() -> Option<String> {
+///
+/// Shared with the lifecycle surfaces' device-link guidance
+/// (`ironclaw_extension_manager::install_guidance::personal_setup_link`), which
+/// treats an unset origin the same way: keep the link-free copy rather than
+/// advertise a relative path into a conversation.
+pub(crate) fn connect_link_base_url_from_env() -> Option<String> {
     let raw = std::env::var(CONNECT_LINK_BASE_URL_ENV).ok()?; // silent-ok: optional public-origin env read; unset keeps the notice link-free
     normalize_connect_link_base_url(&raw)
 }
@@ -404,6 +409,17 @@ pub(crate) struct ChannelHostAssemblyWiring {
     pub(crate) blocked_auth_prompts: Option<Arc<dyn BlockedAuthPromptSource>>,
     pub(crate) auth_flow_cancel: Option<Arc<dyn BlockedAuthFlowCanceller>>,
     pub(crate) run_delivery_settings: RunDeliverySettings,
+    /// The process-wide safe reply projection every run's document lives in;
+    /// the publication service built here reads it, the runtime's milestone
+    /// sink writes it.
+    pub(crate) reply_projection: Arc<ironclaw_assistant::projection::reply::ReplyProjection>,
+    /// The deployment's authenticated-session channel (host-owned reply), if
+    /// any: registered as a publication target for every run.
+    pub(crate) session_reply_channel: Option<ironclaw_host_api::ids::ExtensionId>,
+    /// Whether this call starts the coordinator's reply publication lane.
+    /// Production always does; a test-harness composition defers so the one
+    /// start carries the harness's own kernel handles (input doc).
+    pub(crate) start_reply_publication: bool,
     pub(crate) admin_users: Arc<dyn AdminUserService>,
 }
 
@@ -419,6 +435,7 @@ pub(crate) struct RuntimeExtensionHostAssemblyWiring<'a> {
     pub(crate) auth_challenges: Option<Arc<dyn AuthChallengeProvider>>,
     pub(crate) outbound_delivery_targets: Option<&'a Arc<MutableOutboundDeliveryTargetRegistry>>,
     pub(crate) local_runtime: Option<&'a RebornRuntimeStores>,
+    pub(crate) reply_projection: Arc<ironclaw_assistant::projection::reply::ReplyProjection>,
 }
 
 pub(crate) struct ChannelHostAssemblySource {
@@ -541,6 +558,9 @@ pub(crate) fn start_channel_host(
         auth_flow_cancel,
         run_delivery_settings,
         admin_users,
+        reply_projection,
+        session_reply_channel,
+        start_reply_publication,
     } = wiring;
     let ChannelHostAssemblySource {
         generic_host,
@@ -561,15 +581,33 @@ pub(crate) fn start_channel_host(
         channel_config,
         channel_pairing,
     } = source;
+    // Reply publication is the coordinator's own progressive lane (sole
+    // writer of the attempt aggregate) and starts exactly when a coordinator
+    // exists. The terminal facts come from the turn kernel and the thread
+    // service; a sink's stop request becomes an ordinary cancel; gate
+    // attention is enriched from the approval and auth prompt sources every
+    // other channel surface uses.
+    if start_reply_publication && let Some(coordinator) = delivery_coordinator.as_ref() {
+        use ironclaw_assistant::{ReplyPublicationSettings, ReplyPublicationWiring};
+        // A second start is refused by the coordinator (first wiring wins).
+        _ = coordinator.start_reply_publication(ReplyPublicationWiring {
+            projection: Arc::clone(&reply_projection),
+            turn_coordinator: Arc::clone(&turn_coordinator),
+            thread_service: Arc::clone(&thread_service),
+            approval_context: approval_context.clone(),
+            blocked_auth_prompts: blocked_auth_prompts.clone(),
+            project_filesystem: Arc::clone(project_filesystem),
+            session_channel: session_reply_channel,
+            settings: ReplyPublicationSettings::default(),
+        });
+    }
     let delivery = delivery_coordinator.clone().map(|coordinator| {
         ironclaw_assistant::ChannelWorkflowDeliveryServices {
             coordinator,
             outbound_store: Arc::clone(outbound_state),
             route_store: Arc::clone(delivered_gate_routes),
             communication_preferences: Arc::clone(outbound_preferences),
-            notification_inbox: Some(Arc::clone(notification_inbox)),
             delivery_targets: Arc::clone(outbound_delivery_targets),
-            project_filesystem: Arc::clone(project_filesystem),
             approval_context,
             blocked_auth_prompts,
             auth_flow_cancel,
@@ -587,6 +625,7 @@ pub(crate) fn start_channel_host(
             llm_config: llm_config.map(|service| service as _),
             approval_interaction,
             auth_interaction,
+            notification_inbox: Some(Arc::clone(notification_inbox)),
             identity: ironclaw_assistant::ChannelWorkflowIdentity {
                 tenant_id: identity.tenant_id.clone(),
                 agent_id: identity.agent_id.clone(),
@@ -634,6 +673,7 @@ pub(crate) async fn build_runtime_channel_host(
         auth_challenges,
         outbound_delivery_targets,
         local_runtime,
+        reply_projection,
     } = wiring;
     let source = channel_host_source(services)?;
     let approval_context = Some(Arc::new(
@@ -670,6 +710,9 @@ pub(crate) async fn build_runtime_channel_host(
             auth_flow_cancel,
             run_delivery_settings: ironclaw_assistant::triggered_run_delivery_settings(),
             admin_users,
+            reply_projection,
+            session_reply_channel: services.session_reply_channel.clone(),
+            start_reply_publication: services.start_reply_publication_at_build,
         },
     );
     let assembly = Arc::clone(&started.assembly);

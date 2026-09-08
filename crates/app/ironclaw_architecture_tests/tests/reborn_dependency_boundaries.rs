@@ -811,7 +811,54 @@ fn reborn_contracts_crates_carry_a_checked_size_ceiling() {
         // ToolAdapter auth errors carry the neutral bounded provider diagnostic
         // through the extension ABI. Parsing and model-safety behavior remain
         // in runtime lanes and loop_host.
-        ("ironclaw_extension_contracts", 10_841),
+        // 10_841 -> 11_451 (2026-08-22, `[[memory.scheduled_ops]]`): the
+        // scheduled-op declaration family on the `[memory]` surface — the
+        // closed trigger vocabulary, the tagged op kind and its pass shape,
+        // two host-owned bounds (interval floor, model-call ceiling), the
+        // wire/parsed split that makes an invalid entry unrepresentable, and
+        // the inline test module this ratchet also counts. Declaration and
+        // shape validation only: the two rules needing the manifest-wide view
+        // live in `ironclaw_extension_registry::v3`, asset resolution stays
+        // host-side like `guidance_doc`'s, and nothing here schedules,
+        // dispatches, or invokes anything. Count read from this test's own
+        // failure message.
+        // 11_451 -> 12_928 (2026-08-31, progressive reply publication): the
+        // `reply` module — the channel-neutral reply vocabulary
+        // (`ReplyDocument`/`ReplyRevision`, the bounded
+        // display/answer/reasoning newtypes, the sink checkpoint and
+        // evidence bounds), the single `ReplySink` seam that replaced
+        // `ChannelReply` for every reply transport, the reconcile-point
+        // cadence rule, plus the conformance drive and recording sink in
+        // `test_support` and the inline test module this ratchet also counts.
+        // Vocabulary only: publication state, cadence workers, and rendering
+        // live in `ironclaw_outbound`, `ironclaw_assistant`, and the channel
+        // packages.
+        // 12_928 -> 12_896 (2026-08-31, reply-seam consolidation): the
+        // `ReplyChange` change language and its classification moved out of
+        // the public contract (the document's bounded semantic mutators
+        // replaced them; only the host's projection ever produced changes),
+        // and `ReplyId` was deleted. What remains above the 11_451 pre-reply
+        // pin is the seam itself — document + component types, bounded
+        // newtypes, checkpoint/evidence, the sink trait and its
+        // request/report — which every reply-capable channel consumes; the
+        // pin re-captures the measured count rather than restoring 11_451.
+        // Count read from this test's own failure message.
+        // 12_896 -> 12_867 (2026-08-31, reply-vocabulary trim): the dead
+        // `activity_progress` mutator and the never-produced
+        // `ReplyActivityState::{Running, Killed}` variants, plus the unused
+        // `ReplySinkOutcome::retry_after` and `ReplyPhase::as_str` helpers,
+        // were deleted after a workspace-wide consumer sweep. Count read
+        // from this test's own failure message.
+        // 12_867 -> 13_026 (2026-09-04, #7955 not_configured device-link
+        // failure): +13 lines for the `DeviceLinkErrorCode::NotConfigured`
+        // variant and the `DeviceLinkError::NotConfigured` carrier (docs +
+        // code/restartable arms) — closed-vocabulary growth only; the audit
+        // classification lives in ironclaw_auth's driver and the rendering
+        // in the WebUI panel. The rest of the delta is growth main had
+        // already banked inside the +150 window since the 2026-08-31 pin;
+        // per the capture rule the pin re-captures the measured count, read
+        // from this test's own failure message.
+        ("ironclaw_extension_contracts", 13_026),
         // Raised 17_501 -> 18_570 by #6831 (standardized messaging framework):
         // the growth is the `messaging` vocabulary — the StandardMessagingOp
         // enum, the 12-code error taxonomy, compiled-in canonical schema/prompt
@@ -902,9 +949,25 @@ fn reborn_contracts_crates_carry_a_checked_size_ceiling() {
         // the type that already owns it, matching the sibling
         // `deny_capability_ids`/`narrow_to_capability_ids` builders. The
         // behavior that reads them lives in `ironclaw_turn_runner`, so there is
-        // no lower crate to move this to. Count read from this test's own
-        // failure message, never counted by eye.
-        ("ironclaw_host_api", 20_632),
+        // no lower crate to move this to.
+        // 20_632 -> 21_098 (2026-08-26, #7810 merged with main plus final
+        // review fixes): the provider-neutral credentialed-process boundary
+        // adds authorized binding DTOs, invocation bundle keys, the exact
+        // capability descriptor carried through sealed authorization and
+        // durable process continuation, a release-build witness mismatch
+        // error, and the shared sandbox credential-environment validator.
+        // These are neutral contract and authorization-evidence declarations.
+        // Credential selection, staging, execution, bundle I/O, and proxy
+        // substitution remain in their owning kernel, host-runtime, and
+        // sandbox crates. Count re-captured from this test; the stored ceiling
+        // excludes the standing 150-line working tolerance.
+        // 20_948 -> 21_311 (2026-08-27, #7891 rebased onto #7810): the closed
+        // JSON result-page
+        // wire DTO and its model-preview validation boundary. Record parsing,
+        // shallow paging, redaction, and continuation behavior remain in
+        // `ironclaw_threads`; host API only names the provider-neutral controls
+        // and refuses replay of an unredacted page. Count read from this gate.
+        ("ironclaw_host_api", 21_311),
         // 14_479 -> 13_949 (2026-08-07, #7157): downward re-capture after the
         // delivery-heuristic vocabulary (stored trigger delivery targets and
         // their run-profile plumbing) left this crate with the two-lane

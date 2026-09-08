@@ -1,4 +1,3 @@
-// @ts-nocheck
 // OOBE suggestions data hook — the single owner of suggestion state in the
 // browser (VISION-RECONCILIATION §5.1 slices 1-3).
 //
@@ -14,6 +13,7 @@ import {
   generateSuggestions,
   pollDelayMs,
   startSuggestion,
+  type SuggestionsResponse,
 } from "../lib/suggestions-api";
 
 export const SUGGESTIONS_QUERY_KEY = ["suggestions"];
@@ -39,6 +39,16 @@ export function useSuggestions() {
     onSuccess: (data) => {
       if (data) queryClient.setQueryData(SUGGESTIONS_QUERY_KEY, data);
     },
+    // A generation claimed by another tab/device rejects this one with 409
+    // (`GenerationInProgress`). Without this the cache keeps whatever it last
+    // read — typically the superseded `ready` set — and nothing refetches it:
+    // polling only runs while the cached status is `generating`, and the query
+    // client sets `refetchOnWindowFocus: false`. So re-read authoritative
+    // state on any failure; the refetched `generating` status restarts polling
+    // and this client converges on the winning generation.
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: SUGGESTIONS_QUERY_KEY });
+    },
   });
 
   const start = useMutation({
@@ -59,7 +69,7 @@ export function useSuggestions() {
     // already committed the dismissal, and a round-trip would leave the card
     // on screen for the duration.
     onSuccess: (_result, suggestionId) => {
-      queryClient.setQueryData(SUGGESTIONS_QUERY_KEY, (previous) =>
+      queryClient.setQueryData<SuggestionsResponse>(SUGGESTIONS_QUERY_KEY, (previous) =>
         previous
           ? {
               ...previous,

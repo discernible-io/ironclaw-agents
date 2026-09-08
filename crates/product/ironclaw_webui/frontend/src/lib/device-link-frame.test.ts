@@ -1,4 +1,3 @@
-// @ts-nocheck
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
@@ -186,6 +185,7 @@ test("restartability falls back to the driver's own rule when the frame omits it
   // custody failure cannot be fixed by starting over.
   assert.equal(failedWith("account_unavailable"), false);
   assert.equal(failedWith("custody_failed"), false);
+  assert.equal(failedWith("not_configured"), false);
   assert.equal(failedWith("expired"), true);
   assert.equal(failedWith("unknown_flow"), true);
   assert.equal(failedWith("rate_limited"), true);

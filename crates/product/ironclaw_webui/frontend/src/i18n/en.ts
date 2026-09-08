@@ -107,18 +107,12 @@ registerPack("en", {
   "login.localDevHint": "Running IronClaw locally? Get your sign-in link:",
 
   // Chat — empty state
-  "chat.heroTitle": "Hello, what do you need help with?",
+  "chat.heroTitle": "How can I help you today?",
   "chat.heroDesc":
     "Start with a goal, a repo question, a review request, or work you want inspected.",
   "chat.emptyTitle": "Start with a concrete operator task.",
   "chat.emptyDesc":
     "Send a message or ask for a gateway check. The workspace keeps approvals and runtime activity visible as the turn progresses.",
-  "chat.suggestion1": "Map the current gateway state",
-  "chat.suggestion1Desc": "Inspect runtime health, channels, tools, and open work.",
-  "chat.suggestion2": "Review recent thread activity",
-  "chat.suggestion2Desc": "Look for correctness risks, blocked approvals, and follow-ups.",
-  "chat.suggestion3": "Draft an extension readiness check",
-  "chat.suggestion3Desc": "Verify setup, auth, pairing, and available capabilities.",
 
   // Chat — OOBE suggestion cards (feature-gated first-run surface)
   "chat.oobe.heading": "Suggested for you",
@@ -131,6 +125,8 @@ registerPack("en", {
   "chat.oobe.action.openThread": "View in thread",
   "chat.oobe.action.generate": "Suggest something for me",
   "chat.oobe.action.tryAgain": "Try again",
+  "chat.oobe.action.refresh": "Refresh suggestions",
+  "chat.oobe.action.connect": "Connect tools",
   "chat.oobe.status.starting": "Starting\u2026",
   "chat.oobe.status.generating": "Finding things I can do for you\u2026",
   "chat.oobe.status.generateFailed": "Couldn\u2019t generate suggestions",
@@ -223,7 +219,6 @@ registerPack("en", {
   "activity.separator": ", ",
   "tool.tabDetails": "Details",
   "tool.tabParameters": "Parameters",
-  "tool.tabResult": "Result",
   "tool.tabError": "Error",
   "tool.tabDeclined": "Declined",
   "tool.noDetail": "No additional detail.",
@@ -408,6 +403,9 @@ registerPack("en", {
   "llm.idTaken": "Provider ID \"{id}\" is already used.",
   "llm.invalidId": "Use lowercase letters, numbers, hyphens, or underscores.",
   "llm.model": "Model",
+  "llm.capabilityText": "Text",
+  "llm.capabilityImageInput": "Image input",
+  "llm.capabilityImageOutput": "Image output",
   "llm.modelPreference": "Model preference",
   "llm.modelPreferenceDesc": "Used for future messages in all conversations.",
   "llm.catalogLoadFailed": "Could not load the available models.",
@@ -1311,6 +1309,7 @@ registerPack("en", {
   "chat.deleteFailed": "Couldn't delete this conversation.",
   "chat.deleteBusy": "Can't delete a conversation while it's still running. Stop it first, then try again.",
   "chat.cancelFailed": "Couldn't stop this run. It may still be running. Try again.",
+  "chat.runStopped": "Stopped",
   "command.placeholder": "Type a command or search...",
   "routine.searchPlaceholder": "Search routine name, trigger, or action",
   "routine.unavailable": "Routine unavailable",
@@ -1466,7 +1465,6 @@ registerPack("en", {
   "common.file": "file",
   "chat.previewAttachment": "Preview {name}",
   "chat.downloadAttachment": "Download {name}",
-  "tool.resultAlt": "Tool result"
 });
 
 registerPack("en", {

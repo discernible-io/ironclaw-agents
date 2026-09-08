@@ -75,10 +75,10 @@ use ironclaw_loop_contracts::{
     CommunicationContextProvider, InMemoryLoopHostMilestoneSink, InstructionSafetyContext,
     LoopHostMilestone, LoopHostMilestoneSink, ModelProfileId,
 };
-use ironclaw_loop_host::ToolDisclosureMode;
 use ironclaw_loop_host::{
     CapabilitySurfaceProfileResolver, HostManagedModelGateway, HostUserProfileSource,
-    JsonSpawnSubagentInputCodec, ModelCostTable, SubagentSpawnLimits, ZeroCostTable,
+    JsonSpawnSubagentInputCodec, ModelCostTable, SubagentSpawnLimits, ToolDisclosureMode,
+    ZeroCostTable,
 };
 use ironclaw_loop_host::{LlmModelProfilePolicy, LlmProviderModelGateway};
 use ironclaw_product_contracts::binding::ProductBindingResolver;
@@ -117,6 +117,7 @@ use super::builder::{
     thread_scope_from_binding,
 };
 use super::doubles::{FailingTranscriptWriteThreadService, RecordingSecurityAuditSink};
+use super::external_tool_factory::ExternalToolCapabilityPortFactory;
 use super::harness::{
     EmptyIdentityContextSource, HarnessCapabilityMode, HarnessCapabilityRecorder,
     HostRuntimeCapabilityHarness, RecordingTestCapabilityPort,
@@ -259,6 +260,13 @@ pub(crate) struct GroupSharedStorage {
     /// Retained so integration tests can assert production loop milestones
     /// without adding event-specific hooks to the runtime path.
     pub(crate) milestone_sink: Arc<InMemoryLoopHostMilestoneSink>,
+    /// The reply projection the group's ONE planned runtime composes every
+    /// run's safe reply document into (the production milestone decorator,
+    /// `ReplyProjectionMilestoneSink`, wraps the sink above). Tests that wire
+    /// their own run-delivery observer build their publication service over
+    /// it, so channel replies are published from the same live document the
+    /// composed runtime would use — not only from terminal facts.
+    pub(crate) reply_projection: Arc<ironclaw_assistant::projection::reply::ReplyProjection>,
     /// Enabler (c): the `trace_scope_key(tenant, owner)` the production
     /// trace-capture sink was seeded with when `.with_trace_capture()` opted
     /// in; `None` otherwise. Recorded at wiring time so a test asserts against
@@ -504,6 +512,7 @@ impl RebornIntegrationGroup {
             budget: false,
             communication_context_provider: None,
             hook_dispatcher_builder_factory: None,
+            memory_curation_interval_turns: None,
             trajectory_observer: None,
             runner_lease_ttl_override: None,
             lease_recovery_interval_override: None,
@@ -514,6 +523,7 @@ impl RebornIntegrationGroup {
             real_gate_dispatch_services: false,
             channel_connection: None,
             bound_memory: None,
+            external_tool_specs: None,
         }
     }
 
@@ -652,6 +662,35 @@ impl RebornIntegrationGroup {
         session_label: &str,
         replies: impl IntoIterator<Item = RebornScriptedReply>,
     ) -> HarnessResult<Arc<TraceLlm>> {
+        let (scripted_llm, gateway) = self.scripted_scope_gateway(session_label, replies).await?;
+        self.shared.scope_gateway.register(scope, gateway);
+        Ok(scripted_llm)
+    }
+
+    /// Same scripted chain, routed by thread-id PREFIX instead of an exact
+    /// scope. For runs whose thread id this test cannot know in advance because
+    /// it is derived from the run that triggers them — a background pass keyed
+    /// on its triggering run id, say. Exact registrations still win.
+    pub async fn register_scope_script_prefix_for_test(
+        &self,
+        thread_id_prefix: impl Into<String>,
+        session_label: &str,
+        replies: impl IntoIterator<Item = RebornScriptedReply>,
+    ) -> HarnessResult<Arc<TraceLlm>> {
+        let (scripted_llm, gateway) = self.scripted_scope_gateway(session_label, replies).await?;
+        self.shared
+            .scope_gateway
+            .register_prefix(thread_id_prefix, gateway);
+        Ok(scripted_llm)
+    }
+
+    /// The shared body of the two registrations above: one scripted `TraceLlm`
+    /// at the bottom of the same real provider chain ordinary group threads use.
+    async fn scripted_scope_gateway(
+        &self,
+        session_label: &str,
+        replies: impl IntoIterator<Item = RebornScriptedReply>,
+    ) -> HarnessResult<(Arc<TraceLlm>, Arc<dyn HostManagedModelGateway>)> {
         let scripted_llm = Arc::new(scripted_trace_llm(replies));
         let raw: Arc<dyn LlmProvider> = scripted_llm.clone();
         let session = create_session_manager(SessionConfig {
@@ -670,8 +709,7 @@ impl RebornIntegrationGroup {
         let policy = LlmModelProfilePolicy::new().allow_model_profile(model_profile_id, None);
         let gateway: Arc<dyn HostManagedModelGateway> =
             Arc::new(LlmProviderModelGateway::new(provider, policy));
-        self.shared.scope_gateway.register(scope, gateway);
-        Ok(scripted_llm)
+        Ok((scripted_llm, gateway))
     }
 
     /// Create a per-thread *workflow* builder for `conversation_id`, over the
@@ -871,6 +909,12 @@ pub struct RebornIntegrationGroupBuilder {
     /// lifecycle points on a coordinator-path turn. Default `None` (hook
     /// framework dormant, matching today's behavior).
     hook_dispatcher_builder_factory: Option<HookDispatcherBuilderFactory>,
+    /// E-MEMORY / #7276: when set, the group registers the periodic
+    /// memory-curation hook at the `after_turn` point with this interval, in
+    /// completed turns. Builder method lives in `group_options.rs`. Default
+    /// `None` — the point stays un-wired, matching today's behavior and
+    /// production's opt-in default.
+    memory_curation_interval_turns: Option<std::num::NonZeroU32>,
     /// C-TRAJECTORY: optional observer wired into the group's ONE production
     /// capability-port factory. Default `None`.
     trajectory_observer: Option<Arc<dyn RebornTrajectoryObserver>>,
@@ -912,6 +956,9 @@ pub struct RebornIntegrationGroupBuilder {
         Arc<dyn ironclaw_memory::MemoryService>,
         ironclaw_extension_contracts::memory::MemoryDescriptor,
     )>,
+    /// Test-only client-tool specs installed at run-port construction. `None`
+    /// preserves the normal group capability factory exactly.
+    external_tool_specs: Option<Vec<ironclaw_turns::ExternalToolSpec>>,
 }
 
 impl RebornIntegrationGroupBuilder {
@@ -1037,7 +1084,7 @@ impl RebornIntegrationGroupBuilder {
         } else {
             (None, None)
         };
-        let runtime_milestone_sink: Arc<dyn LoopHostMilestoneSink> =
+        let recorded_milestone_sink: Arc<dyn LoopHostMilestoneSink> =
             if let Some(event_sink) = &durable_event_sink {
                 let durable_scope =
                     DurableLoopHostMilestoneScope::from_thread_scope(&group_thread_scope)?;
@@ -1051,6 +1098,17 @@ impl RebornIntegrationGroupBuilder {
             } else {
                 milestone_sink.clone()
             };
+        // Production decorator position: every milestone is recorded (and
+        // durably logged) first, then composed into the group's reply
+        // projection, exactly as `build_reborn_runtime` wires it.
+        let reply_projection =
+            Arc::new(ironclaw_assistant::projection::reply::ReplyProjection::new());
+        let runtime_milestone_sink: Arc<dyn LoopHostMilestoneSink> = Arc::new(
+            ironclaw_assistant::projection::reply::ReplyProjectionMilestoneSink::new(
+                recorded_milestone_sink,
+                Arc::clone(&reply_projection),
+            ),
+        );
         let (
             capability_factory,
             capability_surface_resolver,
@@ -1063,6 +1121,18 @@ impl RebornIntegrationGroupBuilder {
             process_system.clone(),
             self.trajectory_observer.clone(),
         )?;
+        let external_tool_specs = self.external_tool_specs.clone();
+        let capability_factory: Arc<dyn ironclaw_loop_host::LoopCapabilityPortFactory> =
+            match external_tool_specs {
+                Some(specs) => Arc::new(ExternalToolCapabilityPortFactory {
+                    inner: capability_factory,
+                    catalog: Arc::new(ironclaw_turns::InMemoryExternalToolCatalog::new()),
+                    specs,
+                    input_resolver: Arc::clone(&capability_input_resolver),
+                    result_writer: Arc::clone(&capability_result_writer),
+                }),
+                None => capability_factory,
+            };
 
         // Enabler (b): production resolves `CapabilitySurfacePolicy::allow_all()` for a
         // top-level user turn; mirror that for bridged groups (narrowed
@@ -1258,6 +1328,15 @@ impl RebornIntegrationGroupBuilder {
                 }),
                 None => Arc::clone(&user_profile_source),
             };
+        // E-MEMORY / #7276: production (`runtime.rs`) gates the curation wiring
+        // on BOTH an operator-configured interval and a RESOLVED memory
+        // provider — a pass rewrites a standing memory document, so with no
+        // provider bound there is nothing for it to curate. `bound_memory` is
+        // this harness's analog of that resolution, so the gate is mirrored
+        // here rather than left to the interval alone.
+        let memory_curation_interval_turns = self
+            .memory_curation_interval_turns
+            .filter(|_| self.bound_memory.is_some());
         let reply_attachment_intent_port = capability.reply_attachment_intent_port();
         // Production parity: ONE store, connected to the loop's diagnostic
         // sinks and readable by product services — see runtime.rs:3455 and
@@ -1364,6 +1443,57 @@ impl RebornIntegrationGroupBuilder {
             // C-HOOKS / E-HOOK-INFRA: per-run hook dispatcher builder factory
             // (Some only when `hook_dispatcher_builder_factory()` was set).
             hook_dispatcher_builder_factory: self.hook_dispatcher_builder_factory,
+            // E-MEMORY / #7276 / #7664: the same assembly production performs —
+            // the scheduled-op hook over an `UnboundTurnService` built from this
+            // runtime's own thread service and coordinator, driven by the BOUND
+            // PROVIDER'S OWN DECLARATION. The harness resolves that declaration
+            // (and its prompt asset) exactly as production does, from the
+            // host-bundled native provider's manifest bundle; the group's
+            // interval is the operator override of the declared cadence. `None`
+            // unless `with_memory_curation_interval()` was called AND a memory
+            // provider is bound (see the gate above), so every other group is
+            // behavior-identical.
+            // Opt-in matches production exactly (owner decision, 2026-08-22):
+            // a declaration ARMS upkeep, the configured interval ENABLES it. A
+            // group that binds native memory without an interval schedules
+            // nothing — the same dormant-armed state a default deployment has.
+            after_turn_hook_wiring: memory_curation_interval_turns.map(|interval_turns| {
+                Box::new(
+                    move |deps: ironclaw_turn_runner::runtime::AfterTurnHookDeps| {
+                        let submitter = Arc::new(ironclaw_assistant::UnboundTurnService::new(
+                            deps.thread_service,
+                            deps.coordinator,
+                            deps.thread_scope.agent_id,
+                            deps.thread_scope.project_id,
+                        ));
+                        let bundle =
+                            ironclaw_host_runtime::memory_native_extension::native_memory_provider_bundle()
+                                .map_err(|error| {
+                                    format!("the native memory provider bundle must load: {error}")
+                                })?;
+                        let trigger =
+                            ironclaw_extension_contracts::memory::MemoryScheduledTrigger::AfterTurn;
+                        let declared = bundle.lifecycle.scheduled_op(trigger).ok_or_else(|| {
+                            "the native memory provider must declare an after_turn scheduled op"
+                                .to_string()
+                        })?;
+                        let prompt = bundle
+                            .scheduled_pass_prompts
+                            .iter()
+                            .find(|(candidate, _)| *candidate == trigger)
+                            .map(|(_, prompt)| prompt.as_str())
+                            .ok_or_else(|| {
+                                "the declared after_turn pass prompt must resolve".to_string()
+                            })?;
+                        ironclaw_assistant::memory_scheduled_ops::after_turn_scheduled_op_dispatcher_factory(
+                            submitter,
+                            declared,
+                            prompt,
+                            Some(interval_turns),
+                        )
+                    },
+                ) as ironclaw_turn_runner::runtime::AfterTurnHookWiring
+            }),
             // C-COMMCTX: delivery-preference / connected-channel provider (Some
             // only when `communication_context_provider()` was set).
             communication_context_provider: self.communication_context_provider,
@@ -1419,6 +1549,7 @@ impl RebornIntegrationGroupBuilder {
                 durable_event_sink,
                 security_audit_sink,
                 milestone_sink: milestone_sink_for_assertions,
+                reply_projection: Arc::clone(&reply_projection),
                 trace_capture_scope: trace_capture.map(|(_, scope)| scope),
                 budget_governor,
                 budget_account,
