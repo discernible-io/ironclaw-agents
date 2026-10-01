@@ -685,3 +685,13 @@ Licensed under either of:
 - MIT License ([LICENSE-MIT](LICENSE-MIT))
 
 at your option.
+
+<!-- discernible-io:product-links -->
+## Links
+
+Maintained by [Discernible](https://www.discernible.io/).
+
+- **Product:** [discernible.io](https://www.discernible.io/)
+- **Get a Passport:** [purchase.identyclaw.com](https://purchase.identyclaw.com) (buy once — no subscription)
+- **Verify HOLA:** [verify.identyclaw.com](https://verify.identyclaw.com)
+<!-- /discernible-io:product-links -->
