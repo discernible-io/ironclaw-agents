@@ -4,7 +4,8 @@
 # INGRESS_PORT must match IRONCLAW_APP_PORT / the pod publish mapping
 # (${APP_PORT}:${APP_PORT}). The listen directive is substituted at build time;
 # EXPOSE alone is not enough.
-FROM docker.io/nginx:1.31.0-alpine@sha256:f105e3f12187c58ddc3acd09bbe4b9e4a9ab1df855d3d0e511b641077b5e988e
+# Pin tag+digest (nginx 1.31.7 / Alpine 3.24); bump deliberately on a rebuild schedule.
+FROM docker.io/nginx:1.31.7-alpine@sha256:892bb2152464f0c5d8972593a5f5afaf8054552580b699d95f8ff4af08c2d33d
 
 ARG NODE_ENV=development
 ARG INGRESS_PORT=8443
